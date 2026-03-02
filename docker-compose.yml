@@ -1,0 +1,27 @@
+﻿services:
+  arangodb:
+    image: arangodb:3.11
+    container_name: arango-demo-db
+    environment:
+      ARANGO_ROOT_PASSWORD: openSesame
+    ports:
+      - "8529:8529"
+    healthcheck:
+      test: ["CMD", "arangosh", "--server.endpoint", "tcp://127.0.0.1:8529", "--server.username", "root", "--server.password", "openSesame", "--javascript.execute-string", "db._version()"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    container_name: arango-demo-app
+    environment:
+      ARANGO_HOST: arangodb
+      ARANGO_PORT: 8529
+      ARANGO_USER: root
+      ARANGO_PASSWORD: openSesame
+      TARGET_DB: demo_db
+      COLLECTION: messages
+    depends_on:
+      arangodb:
+        condition: service_healthy
