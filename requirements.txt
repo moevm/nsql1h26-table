@@ -1,1 +1,0 @@
-﻿python-arango==8.1.6
