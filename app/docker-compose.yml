@@ -1,0 +1,33 @@
+services:
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:8081:8080"
+    environment:
+      APP_PORT: "8080"
+      ARANGO_URL: "http://db:8529"
+      ARANGO_DB: "tables_forms_app"
+      ARANGO_USER: "root"
+      ARANGO_PASSWORD: "${ARANGO_PASSWORD:-prototype-password}"
+      APP_SECURE_COOKIES: "${APP_SECURE_COOKIES:-0}"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: arangodb:3.11.11
+    environment:
+      ARANGO_ROOT_PASSWORD: "${ARANGO_PASSWORD:-prototype-password}"
+    volumes:
+      - arangodb-data:/var/lib/arangodb3
+      - arangodb-apps:/var/lib/arangodb3-apps
+    healthcheck:
+      test: ["CMD-SHELL", "arangosh --server.endpoint tcp://127.0.0.1:8529 --server.username root --server.password \"$${ARANGO_ROOT_PASSWORD}\" --javascript.execute-string 'db._version();' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+volumes:
+  arangodb-data:
+  arangodb-apps:
