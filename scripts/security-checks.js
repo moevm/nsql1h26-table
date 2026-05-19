@@ -150,6 +150,16 @@ async function main() {
   assert.equal(adminResponses.some(response => response.formId === 'f3' && response.user !== 'admin'), false, 'invited form user must not see other users responses');
   assert.ok(editorResponses.some(response => response.formId === 'f3'), 'form owner must see own form responses');
 
+  const tablePage = (await admin.request('/api/list?type=tables&page=1&limit=2&comment=%D0%9F%D0%BB%D0%B0%D0%BD', { expectStatus: 200 })).json;
+  assert.ok(tablePage.total >= 1, 'table list endpoint must filter by comment');
+  assert.ok(tablePage.items.length <= 2, 'table list endpoint must apply server-side pagination');
+
+  const usersPage = (await admin.request('/api/list?type=users&page=1&limit=10&q=admin', { expectStatus: 200 })).json;
+  assert.ok(usersPage.items.some(user => user.login === 'admin'), 'users page endpoint must support user search');
+
+  const formLogsPage = (await editor.request('/api/list?type=formLogs&page=1&limit=10&answers=%D0%BF%D0%BE%D0%B7%D0%B8%D1%86', { expectStatus: 200 })).json;
+  assert.ok(Array.isArray(formLogsPage.items), 'form log list endpoint must accept answer filters');
+
   const appJs = (await anonymous.request('/app.js', { expectStatus: 200 })).text;
   assert.ok(appJs.includes('escapeHtml(String(val))'), 'table cells must be escaped before insertion into HTML');
   assert.ok(appJs.includes('escapeHtml(fld.label)'), 'form labels must be escaped before insertion into HTML');

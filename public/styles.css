@@ -71,7 +71,8 @@ body.theme-dark select option {
   color: var(--text);
 }
 
-body.theme-dark input[type="date"]::-webkit-calendar-picker-indicator {
+body.theme-dark input[type="date"]::-webkit-calendar-picker-indicator,
+body.theme-dark input[type="datetime-local"]::-webkit-calendar-picker-indicator {
   filter: invert(1);
 }
 
@@ -369,9 +370,8 @@ body {
   background: var(--surface-hover);
 }
 .cell-actions {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .log-list-toolbar {
@@ -457,6 +457,31 @@ body {
 .date-range-inputs input {
   flex: 1;
   min-width: 0;
+}
+
+.list-footer {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: space-between;
+  margin-top: 0.75rem;
+}
+
+.list-count {
+  font-size: 0.92rem;
+}
+
+.pagination {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.pagination-info {
+  min-width: 5rem;
+  text-align: center;
 }
 
 .multi-filter-actions {
@@ -1011,6 +1036,76 @@ body {
 }
 
 .data-table .btn-link:hover { color: var(--primary-hover); }
+
+#table-tables-list,
+#table-forms-list {
+  min-width: 1120px;
+  table-layout: fixed;
+}
+
+#table-tables-list th,
+#table-tables-list td,
+#table-forms-list th,
+#table-forms-list td {
+  vertical-align: top;
+  overflow-wrap: break-word;
+}
+
+#table-tables-list th:nth-child(1),
+#table-tables-list td:nth-child(1),
+#table-forms-list th:nth-child(1),
+#table-forms-list td:nth-child(1) {
+  width: 13rem;
+}
+
+#table-tables-list th:nth-child(2),
+#table-tables-list td:nth-child(2),
+#table-tables-list th:nth-child(3),
+#table-tables-list td:nth-child(3),
+#table-tables-list th:nth-child(4),
+#table-tables-list td:nth-child(4),
+#table-forms-list th:nth-child(2),
+#table-forms-list td:nth-child(2),
+#table-forms-list th:nth-child(3),
+#table-forms-list td:nth-child(3),
+#table-forms-list th:nth-child(4),
+#table-forms-list td:nth-child(4) {
+  width: 11rem;
+}
+
+#table-tables-list th:nth-child(5),
+#table-tables-list td:nth-child(5),
+#table-forms-list th:nth-child(5),
+#table-forms-list td:nth-child(5) {
+  width: 9.5rem;
+}
+
+#table-tables-list th:nth-child(6),
+#table-tables-list td:nth-child(6),
+#table-forms-list th:nth-child(6),
+#table-forms-list td:nth-child(6) {
+  width: 12rem;
+}
+
+#table-tables-list th:nth-child(7),
+#table-tables-list td:nth-child(7),
+#table-forms-list th:nth-child(7),
+#table-forms-list td:nth-child(7) {
+  width: 8.5rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+#table-tables-list .cell-actions,
+#table-forms-list .cell-actions {
+  text-align: center;
+}
+
+#table-tables-list td:nth-child(5) .access-badge,
+#table-forms-list td:nth-child(5) .access-badge {
+  margin-top: 0.25rem;
+  max-width: 100%;
+}
 
 /* ---------- Детальный просмотр ---------- */
 .detail-toolbar {

@@ -10,12 +10,28 @@
     export: 'Экспорт данных',
     statistics: 'Статистика',
     'tables-log': 'Действия в таблицах',
-    'forms-log': 'Действия в формах'
+    'forms-log': 'Действия в формах',
+    users: 'Пользователи'
+  };
+
+  const ROUTES = {
+    '/': { screen: 'tables' },
+    '/tables': { screen: 'tables' },
+    '/forms': { screen: 'forms' },
+    '/table-actions': { screen: 'tables-log' },
+    '/tables-log': { screen: 'tables-log' },
+    '/form-actions': { screen: 'forms-log' },
+    '/forms-log': { screen: 'forms-log' },
+    '/users': { screen: 'users' },
+    '/import': { screen: 'import' },
+    '/export': { screen: 'export' },
+    '/statistics': { screen: 'statistics' }
   };
 
   const SHEET_ROWS = 40;
   const SHEET_COLS = 40;
   const IMPORT_FILE_LIMIT = 10 * 1024 * 1024;
+  const LIST_PAGE_SIZE = 10;
 
   let currentScreen = 'tables';
   let currentTableId = null;
@@ -24,9 +40,58 @@
   let sheetFiltersVisible = true;
   let sheetColumnFilters = {};
   let activeSheetFilterCleanup = null;
+  const listPages = { tables: 1, forms: 1, 'tables-log': 1, 'forms-log': 1, users: 1 };
 
   const $ = (sel, el = document) => el.querySelector(sel);
   const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
+
+  function routeForScreen(screenId) {
+    if (screenId === 'tables-log') return '/table-actions';
+    if (screenId === 'forms-log') return '/form-actions';
+    if (screenId === 'users') return '/users';
+    if (screenId === 'import') return '/import';
+    if (screenId === 'export') return '/export';
+    if (screenId === 'statistics') return '/statistics';
+    if (screenId === 'forms') return '/forms';
+    return '/tables';
+  }
+
+  function routeFromLocation() {
+    const path = window.location.pathname || '/';
+    if (/^\/tables\/([^/]+)$/.test(path)) {
+      return { screen: 'table-view', tableId: decodeURIComponent(path.split('/').pop()) };
+    }
+    if (/^\/forms\/([^/]+)$/.test(path)) {
+      return { screen: 'form-view', formId: decodeURIComponent(path.split('/').pop()) };
+    }
+    return ROUTES[path] || ROUTES['/'];
+  }
+
+  function pushRouteForScreen(screenId) {
+    const path = routeForScreen(screenId);
+    if (window.location.pathname !== path) history.pushState({ screen: screenId }, '', path);
+  }
+
+  function navigateToScreen(screenId) {
+    pushRouteForScreen(screenId);
+    showScreen(screenId);
+    if (screenId === 'tables') renderTablesList();
+    if (screenId === 'forms') renderFormsList();
+    if (screenId === 'statistics') drawChart();
+    if (screenId === 'create-form') renderFormBuilderFields();
+  }
+
+  function navigateToTable(id) {
+    const path = '/tables/' + encodeURIComponent(id);
+    if (window.location.pathname !== path) history.pushState({ screen: 'table-view', id }, '', path);
+    openTableView(id);
+  }
+
+  function navigateToForm(id) {
+    const path = '/forms/' + encodeURIComponent(id);
+    if (window.location.pathname !== path) history.pushState({ screen: 'form-view', id }, '', path);
+    openFormView(id);
+  }
 
   function showScreen(screenId) {
     currentScreen = screenId;
@@ -47,6 +112,7 @@
     if (screenId === 'statistics') initStatisticsScreen();
     if (screenId === 'tables-log') renderTablesLog();
     if (screenId === 'forms-log') renderFormsLog();
+    if (screenId === 'users') renderUsersList();
   }
 
   function showLogin() {
@@ -67,8 +133,16 @@
     const user = localStorage.getItem(STORAGE_KEYS.user) || 'Пользователь';
     const nameEl = $('#user-name');
     if (nameEl) nameEl.textContent = user;
-    showScreen('tables');
-    renderTablesList();
+    const route = routeFromLocation();
+    if (route.tableId) {
+      openTableView(route.tableId);
+    } else if (route.formId) {
+      openFormView(route.formId);
+    } else {
+      showScreen(route.screen || 'tables');
+      if ((route.screen || 'tables') === 'tables') renderTablesList();
+      if (route.screen === 'forms') renderFormsList();
+    }
   }
 
   $('#sidebar-toggle')?.addEventListener('click', function () {
@@ -163,13 +237,10 @@
   // ---------- Навигация ----------
   $$('.nav-link').forEach(link => {
     link.addEventListener('click', function (e) {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
       e.preventDefault();
       const screen = this.dataset.screen;
-      if (screen) showScreen(screen);
-      if (screen === 'tables') renderTablesList();
-      if (screen === 'forms') renderFormsList();
-      if (screen === 'statistics') drawChart();
-      if (screen === 'create-form') renderFormBuilderFields();
+      if (screen) navigateToScreen(screen);
     });
   });
 
@@ -180,6 +251,14 @@
       if (this.dataset.screen === 'tables') renderTablesList();
       if (this.dataset.screen === 'forms') renderFormsList();
     });
+  });
+
+  window.addEventListener('popstate', function () {
+    if ($('#app')?.classList.contains('hidden')) return;
+    const route = routeFromLocation();
+    if (route.tableId) openTableView(route.tableId);
+    else if (route.formId) openFormView(route.formId);
+    else showScreen(route.screen || 'tables');
   });
 
   // ---------- Списки таблиц и форм ----------
@@ -196,6 +275,25 @@
 
   function normalizeText(s) {
     return String(s == null ? '' : s).toLowerCase();
+  }
+
+  function formatDateTime(value) {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (isNaN(date.getTime())) return String(value);
+    return date.toLocaleString('ru', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  }
+
+  function openTableInNewTab(id) {
+    const opened = window.open('/tables/' + encodeURIComponent(id), '_blank', 'noopener');
+    if (opened) opened.opener = null;
   }
 
   function currentUserLogin() {
@@ -251,73 +349,141 @@
 
   function accessDenied(resourceType) {
     alert((resourceType === 'form' ? 'Форма' : 'Таблица') + ' недоступна: владелец не приглашал вас.');
-    showScreen(resourceType === 'form' ? 'forms' : 'tables');
-    if (resourceType === 'form') renderFormsList();
-    else renderTablesList();
+    navigateToScreen(resourceType === 'form' ? 'forms' : 'tables');
   }
 
-  function normalizeImportedInvites(resource, ownerLogin) {
-    const validUsers = new Set(loadUsers().map(user => String(user.login || '').toLowerCase()));
-    return [...new Set((resource?.invitedUsers || [])
-      .map(login => String(login || '').trim())
-      .filter(login => login && !sameLogin(login, ownerLogin) && validUsers.has(login.toLowerCase())))];
+  function makeImportedResourceId(type, index, usedIds) {
+    const prefix = type === 'form' ? 'f' : 't';
+    let counter = 0;
+    let id = '';
+    do {
+      id = prefix + 'import-' + Date.now() + '-' + index + (counter ? '-' + counter : '');
+      counter += 1;
+    } while (usedIds.has(id));
+    usedIds.add(id);
+    return id;
   }
 
-  function normalizeImportedResource(resource, type, index) {
+  function normalizeImportedResource(resource, type, index, id, existingResource) {
     const user = currentUserLogin() || 'Пользователь';
     const now = new Date().toISOString();
     return {
       ...resource,
-      id: resource?.id || (type === 'form' ? 'f' : 't') + Date.now() + '-' + index,
+      id,
       owner: user,
       ownerLogin: user,
-      invitedUsers: normalizeImportedInvites(resource, user),
-      createdAt: resource?.createdAt || now,
+      invitedUsers: existingResource?.invitedUsers || [],
+      createdAt: existingResource?.createdAt || resource?.createdAt || now,
       updatedAt: resource?.updatedAt || now,
-      history: resource?.history || []
+      history: existingResource?.history || resource?.history || []
     };
   }
 
+  function mergeImportedResources(existingResources, importedResources, type) {
+    const next = [...existingResources];
+    const indexById = new Map();
+    const ownedById = new Map();
+    const usedIds = new Set();
+    const idMap = new Map();
+
+    next.forEach((resource, index) => {
+      const id = String(resource?.id || '');
+      if (!id) return;
+      indexById.set(id, index);
+      usedIds.add(id);
+      if (isResourceOwner(resource)) ownedById.set(id, resource);
+    });
+
+    if (!Array.isArray(importedResources) || !importedResources.length) {
+      return { items: next, idMap };
+    }
+
+    importedResources.forEach((resource, index) => {
+      const rawId = String(resource?.id || '').trim();
+      const existingOwned = rawId ? ownedById.get(rawId) : null;
+      const targetId = existingOwned ? rawId : makeImportedResourceId(type, index, usedIds);
+      const normalized = normalizeImportedResource(resource, type, index, targetId, existingOwned);
+      idMap.set(rawId || targetId, targetId);
+
+      if (indexById.has(targetId)) {
+        next[indexById.get(targetId)] = normalized;
+      } else {
+        indexById.set(targetId, next.length);
+        next.push(normalized);
+      }
+    });
+
+    return { items: next, idMap };
+  }
+
+  function mergeImportedChildDocs(existingDocs, importedDocs, refKey, idMap) {
+    const next = [...existingDocs];
+    const indexById = new Map();
+    const user = currentUserLogin() || 'Пользователь';
+
+    next.forEach((doc, index) => {
+      const id = String(doc?.id || doc?._key || '');
+      if (id) indexById.set(id, index);
+    });
+
+    if (!Array.isArray(importedDocs) || !idMap.size) return next;
+
+    importedDocs.forEach((doc, index) => {
+      const originalRef = String(doc?.[refKey] || '').trim();
+      const mappedRef = idMap.get(originalRef);
+      if (!mappedRef) return;
+      const rawId = String(doc?.id || doc?._key || '').trim();
+      const id = rawId || refKey + '-import-' + Date.now() + '-' + index;
+      const normalized = {
+        ...doc,
+        id,
+        [refKey]: mappedRef,
+        user
+      };
+      if (indexById.has(id)) {
+        next[indexById.get(id)] = {
+          ...next[indexById.get(id)],
+          ...normalized
+        };
+      } else {
+        indexById.set(id, next.length);
+        next.push(normalized);
+      }
+    });
+
+    return next;
+  }
+
   function mergeImportedStateForCurrentUser(data) {
-    const ownedTableIds = new Set(ownedTables().map(table => table.id));
-    const ownedFormIds = new Set(ownedForms().map(form => form.id));
-    const nextTables = Array.isArray(data.tables)
-      ? loadTables().filter(table => !ownedTableIds.has(table.id)).concat(data.tables.map((table, index) => normalizeImportedResource(table, 'table', index)))
-      : loadTables();
-    const nextForms = Array.isArray(data.forms)
-      ? loadForms().filter(form => !ownedFormIds.has(form.id)).concat(data.forms.map((form, index) => normalizeImportedResource(form, 'form', index)))
-      : loadForms();
-    const importedFormIds = new Set(nextForms.filter(isResourceOwner).map(form => form.id));
-    const keptResponses = loadFormResponses().filter(response => !ownedFormIds.has(response.formId));
-    const nextResponses = Array.isArray(data.responses)
-      ? keptResponses.concat(data.responses.filter(response => importedFormIds.has(response.formId)))
-      : loadFormResponses();
-    const keptTableLogs = loadTableLogs().filter(log => !ownedTableIds.has(log.tableId));
-    const keptFormLogs = loadFormLogs().filter(log => !ownedFormIds.has(log.formId));
-    const nextTableIds = new Set(nextTables.filter(isResourceOwner).map(table => table.id));
-    const nextFormIds = new Set(nextForms.filter(isResourceOwner).map(form => form.id));
+    const tablesMerge = mergeImportedResources(loadTables(), data.tables, 'table');
+    const formsMerge = mergeImportedResources(loadForms(), data.forms, 'form');
+    const nextTables = tablesMerge.items;
+    const nextForms = formsMerge.items;
+    const nextResponses = mergeImportedChildDocs(loadFormResponses(), data.responses, 'formId', formsMerge.idMap);
+    const nextTableLogs = mergeImportedChildDocs(loadTableLogs(), data.tableLogs, 'tableId', tablesMerge.idMap);
+    const nextFormLogs = mergeImportedChildDocs(loadFormLogs(), data.formLogs, 'formId', formsMerge.idMap);
     return {
       users: loadUsers(),
       tables: nextTables,
       forms: nextForms,
       responses: nextResponses,
-      tableLogs: Array.isArray(data.tableLogs)
-        ? keptTableLogs.concat(data.tableLogs.filter(log => !log.tableId || nextTableIds.has(log.tableId)))
-        : loadTableLogs(),
-      formLogs: Array.isArray(data.formLogs)
-        ? keptFormLogs.concat(data.formLogs.filter(log => !log.formId || nextFormIds.has(log.formId)))
-        : loadFormLogs()
+      tableLogs: nextTableLogs,
+      formLogs: nextFormLogs
     };
   }
 
   function parseDateBoundary(dateValue, isEnd) {
     if (!dateValue) return null;
     const v = String(dateValue).trim();
-    // ожидаем формат именно YYYY-MM-DD (input[type="date"])
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
-    const suffix = isEnd ? 'T23:59:59.999Z' : 'T00:00:00.000Z';
-    const d = new Date(v + suffix);
+    const source = /^\d{4}-\d{2}-\d{2}$/.test(v)
+      ? v + (isEnd ? 'T23:59:59.999' : 'T00:00:00.000')
+      : v;
+    const d = new Date(source);
     return isNaN(d.getTime()) ? null : d;
+  }
+
+  function rawFilterValue(id) {
+    return ($(id)?.value || '').trim();
   }
 
   function inDateRange(dateIso, from, to) {
@@ -357,6 +523,7 @@
     return {
       name: ($('#filter-tables-name')?.value || '').trim(),
       owner: ($('#filter-tables-owner')?.value || '').trim(),
+      comment: ($('#filter-tables-comment')?.value || '').trim(),
       createdFrom: parseDateBoundary($('#filter-tables-created-from')?.value, false),
       createdTo: parseDateBoundary($('#filter-tables-created-to')?.value, true),
       updatedFrom: parseDateBoundary($('#filter-tables-updated-from')?.value, false),
@@ -370,6 +537,7 @@
     return {
       name: ($('#filter-forms-name')?.value || '').trim(),
       owner: ($('#filter-forms-owner')?.value || '').trim(),
+      comment: ($('#filter-forms-comment')?.value || '').trim(),
       createdFrom: parseDateBoundary($('#filter-forms-created-from')?.value, false),
       createdTo: parseDateBoundary($('#filter-forms-created-to')?.value, true),
       updatedFrom: parseDateBoundary($('#filter-forms-updated-from')?.value, false),
@@ -385,6 +553,8 @@
       action: ($('#filter-tables-log-action')?.value || '').trim(),
       user: ($('#filter-tables-log-user')?.value || '').trim(),
       owner: ($('#filter-tables-log-owner')?.value || '').trim(),
+      cell: ($('#filter-tables-log-cell')?.value || '').trim(),
+      value: ($('#filter-tables-log-value')?.value || '').trim(),
       createdFrom: parseDateBoundary($('#filter-tables-log-created-from')?.value, false),
       createdTo: parseDateBoundary($('#filter-tables-log-created-to')?.value, true),
       updatedFrom: parseDateBoundary($('#filter-tables-log-updated-from')?.value, false),
@@ -402,6 +572,7 @@
       action: ($('#filter-forms-log-action')?.value || '').trim(),
       user: ($('#filter-forms-log-user')?.value || '').trim(),
       owner: ($('#filter-forms-log-owner')?.value || '').trim(),
+      answers: ($('#filter-forms-log-answers')?.value || '').trim(),
       status: ($('#filter-forms-log-status')?.value || '').trim(),
       fieldsMin: parseNumberBoundary($('#filter-forms-log-fields-min')?.value),
       fieldsMax: parseNumberBoundary($('#filter-forms-log-fields-max')?.value),
@@ -414,7 +585,129 @@
     };
   }
 
-  function renderTablesList() {
+  function getUsersMultiFilters() {
+    return {
+      login: ($('#filter-users-login')?.value || '').trim(),
+      role: ($('#filter-users-role')?.value || '').trim(),
+      createdFrom: parseDateBoundary($('#filter-users-created-from')?.value, false),
+      createdTo: parseDateBoundary($('#filter-users-created-to')?.value, true)
+    };
+  }
+
+  function commonServerDateParams(prefix, names) {
+    const params = {};
+    names.forEach(name => {
+      const from = rawFilterValue('#filter-' + prefix + '-' + name + '-from');
+      const to = rawFilterValue('#filter-' + prefix + '-' + name + '-to');
+      if (from) params[name + 'From'] = from;
+      if (to) params[name + 'To'] = to;
+    });
+    return params;
+  }
+
+  function listServerParams(kind) {
+    if (kind === 'tables') {
+      return {
+        q: rawFilterValue('#search-tables-global'),
+        name: rawFilterValue('#filter-tables-name'),
+        owner: rawFilterValue('#filter-tables-owner'),
+        comment: rawFilterValue('#filter-tables-comment'),
+        ...commonServerDateParams('tables', ['created', 'updated', 'viewed'])
+      };
+    }
+    if (kind === 'forms') {
+      return {
+        q: rawFilterValue('#search-forms-global'),
+        name: rawFilterValue('#filter-forms-name'),
+        owner: rawFilterValue('#filter-forms-owner'),
+        comment: rawFilterValue('#filter-forms-comment'),
+        ...commonServerDateParams('forms', ['created', 'updated', 'viewed'])
+      };
+    }
+    if (kind === 'tables-log') {
+      return {
+        q: rawFilterValue('#search-tables-log'),
+        tableName: rawFilterValue('#filter-tables-log-tableName'),
+        action: rawFilterValue('#filter-tables-log-action'),
+        user: rawFilterValue('#filter-tables-log-user'),
+        owner: rawFilterValue('#filter-tables-log-owner'),
+        cell: rawFilterValue('#filter-tables-log-cell'),
+        value: rawFilterValue('#filter-tables-log-value'),
+        ...commonServerDateParams('tables-log', ['created', 'updated', 'viewed', 'date'])
+      };
+    }
+    if (kind === 'forms-log') {
+      return {
+        q: rawFilterValue('#search-forms-log'),
+        formName: rawFilterValue('#filter-forms-log-formName'),
+        action: rawFilterValue('#filter-forms-log-action'),
+        user: rawFilterValue('#filter-forms-log-user'),
+        owner: rawFilterValue('#filter-forms-log-owner'),
+        answers: rawFilterValue('#filter-forms-log-answers'),
+        status: rawFilterValue('#filter-forms-log-status'),
+        fieldsMin: rawFilterValue('#filter-forms-log-fields-min'),
+        fieldsMax: rawFilterValue('#filter-forms-log-fields-max'),
+        ...commonServerDateParams('forms-log', ['created', 'updated', 'date'])
+      };
+    }
+    if (kind === 'users') {
+      return {
+        q: rawFilterValue('#search-users'),
+        login: rawFilterValue('#filter-users-login'),
+        role: rawFilterValue('#filter-users-role'),
+        ...commonServerDateParams('users', ['created'])
+      };
+    }
+    return {};
+  }
+
+  async function loadPagedList(kind, apiType, fallbackItems) {
+    const page = listPages[kind] || 1;
+    const params = {
+      ...listServerParams(kind),
+      page,
+      limit: LIST_PAGE_SIZE
+    };
+    if (typeof fetchList === 'function') {
+      try {
+        return await fetchList(apiType, params);
+      } catch (err) {
+        console.warn('Server-side list failed, using local cache:', err.message);
+      }
+    }
+    const items = fallbackItems();
+    const offset = (page - 1) * LIST_PAGE_SIZE;
+    return { items: items.slice(offset, offset + LIST_PAGE_SIZE), total: items.length, page, limit: LIST_PAGE_SIZE };
+  }
+
+  function renderPagination(kind, total, page, limit, renderFn) {
+    const countEl = $('#' + kind + '-count');
+    const paginationEl = $('#' + kind + '-pagination');
+    if (countEl) countEl.textContent = 'Найдено ' + total + ' элементов';
+    if (!paginationEl) return;
+    const pages = Math.max(1, Math.ceil(total / limit));
+    paginationEl.innerHTML = '<button type="button" class="btn btn-ghost btn-sm pagination-prev">Назад</button>' +
+      '<span class="pagination-info">' + page + ' / ' + pages + '</span>' +
+      '<button type="button" class="btn btn-ghost btn-sm pagination-next">Вперёд</button>';
+    const prev = paginationEl.querySelector('.pagination-prev');
+    const next = paginationEl.querySelector('.pagination-next');
+    if (prev) {
+      prev.disabled = page <= 1;
+      prev.addEventListener('click', () => {
+        listPages[kind] = Math.max(1, page - 1);
+        renderFn();
+      });
+    }
+    if (next) {
+      next.disabled = page >= pages;
+      next.addEventListener('click', () => {
+        listPages[kind] = Math.min(pages, page + 1);
+        renderFn();
+      });
+    }
+  }
+
+  async function renderTablesList() {
     lastSearchScreen = 'tables';
     const query = ($('#search-tables-global')?.value || '').trim().toLowerCase();
     const filters = getTablesMultiFilters();
@@ -426,6 +719,7 @@
         return [
           t.name,
           t.owner,
+          t.comment,
           t.createdAt,
           t.updatedAt,
           viewed
@@ -436,6 +730,7 @@
     list = list.filter(t => {
       if (filters.name && !normalizeText(t.name).includes(normalizeText(filters.name))) return false;
       if (filters.owner && !normalizeText(t.owner).includes(normalizeText(filters.owner))) return false;
+      if (filters.comment && !normalizeText(t.comment).includes(normalizeText(filters.comment))) return false;
       if (filters.createdFrom || filters.createdTo) if (!inDateRange(t.createdAt, filters.createdFrom, filters.createdTo)) return false;
       if (filters.updatedFrom || filters.updatedTo) if (!inDateRange(t.updatedAt, filters.updatedFrom, filters.updatedTo)) return false;
       if (filters.viewedFrom || filters.viewedTo) if (!inDateRange(t.lastViewedAt, filters.viewedFrom, filters.viewedTo)) return false;
@@ -443,22 +738,31 @@
     });
 
     list = [...list].sort(sortByLastViewedOrUpdated);
+    const pageData = await loadPagedList('tables', 'tables', () => list);
+    list = pageData.items || [];
     const tbody = $('#tbody-tables');
     if (!tbody) return;
     tbody.innerHTML = list.map(t => `
       <tr class="table-row-clickable" data-table-id="${escapeHtml(t.id)}">
-        <td>${escapeHtml(t.name)}</td>
-        <td>${escapeHtml(t.createdAt)}</td>
-        <td>${escapeHtml(t.updatedAt)}</td>
-        <td>${escapeHtml(t.lastViewedAt ? new Date(t.lastViewedAt).toLocaleString('ru') : '—')}</td>
+        <td><a href="/tables/${encodeURIComponent(t.id)}" target="_blank" rel="noopener" class="table-open-link" data-id="${escapeHtml(t.id)}">${escapeHtml(t.name)}</a></td>
+        <td>${escapeHtml(formatDateTime(t.createdAt))}</td>
+        <td>${escapeHtml(formatDateTime(t.updatedAt))}</td>
+        <td>${escapeHtml(formatDateTime(t.lastViewedAt))}</td>
         <td>${escapeHtml(t.owner)}${isResourceOwner(t) ? '' : ' <span class="access-badge">приглашение</span>'}</td>
+        <td>${escapeHtml(t.comment || '')}</td>
         <td class="cell-actions">${isResourceOwner(t) ? '<button type="button" class="btn-link btn-link-danger delete-table" data-id="' + escapeHtml(t.id) + '" data-name="' + escapeHtml(t.name) + '">Удалить</button>' : '—'}</td>
       </tr>
-    `).join('') || '<tr><td colspan="6">Нет таблиц</td></tr>';
+    `).join('') || '<tr><td colspan="7">Нет таблиц</td></tr>';
+    renderPagination('tables', pageData.total || 0, pageData.page || 1, pageData.limit || LIST_PAGE_SIZE, renderTablesList);
+    tbody.querySelectorAll('.table-open-link').forEach(link => {
+      link.addEventListener('click', function (e) {
+        e.stopPropagation();
+      });
+    });
     tbody.querySelectorAll('.table-row-clickable').forEach(tr => {
       tr.addEventListener('click', function (e) {
-        if (e.target.closest('.delete-table')) return;
-        openTableView(this.dataset.tableId);
+        if (e.target.closest('.delete-table') || e.target.closest('a')) return;
+        openTableInNewTab(this.dataset.tableId);
       });
     });
     tbody.querySelectorAll('.delete-table').forEach(btn => {
@@ -487,8 +791,8 @@
       saveTables(tables);
       msg.remove();
       document.body.style.overflow = '';
-      if (currentTableId === id) { currentTableId = null; showScreen('tables'); }
-      renderTablesList();
+      if (currentTableId === id) currentTableId = null;
+      navigateToScreen('tables');
     };
     document.body.style.overflow = 'hidden';
     document.body.appendChild(msg);
@@ -514,14 +818,14 @@
       saveFormResponses(loadFormResponses().filter(r => r.formId !== id));
       msg.remove();
       document.body.style.overflow = '';
-      if (currentFormId === id) { currentFormId = null; showScreen('forms'); }
-      renderFormsList();
+      if (currentFormId === id) currentFormId = null;
+      navigateToScreen('forms');
     };
     document.body.style.overflow = 'hidden';
     document.body.appendChild(msg);
   }
 
-  function renderFormsList() {
+  async function renderFormsList() {
     lastSearchScreen = 'forms';
     const query = ($('#search-forms-global')?.value || '').trim().toLowerCase();
     const filters = getFormsMultiFilters();
@@ -533,6 +837,8 @@
         return [
           f.name,
           f.owner,
+          f.comment,
+          f.description,
           f.createdAt,
           f.updatedAt,
           viewed
@@ -543,6 +849,7 @@
     list = list.filter(f => {
       if (filters.name && !normalizeText(f.name).includes(normalizeText(filters.name))) return false;
       if (filters.owner && !normalizeText(f.owner).includes(normalizeText(filters.owner))) return false;
+      if (filters.comment && !normalizeText(f.comment).includes(normalizeText(filters.comment))) return false;
       if (filters.createdFrom || filters.createdTo) if (!inDateRange(f.createdAt, filters.createdFrom, filters.createdTo)) return false;
       if (filters.updatedFrom || filters.updatedTo) if (!inDateRange(f.updatedAt, filters.updatedFrom, filters.updatedTo)) return false;
       if (filters.viewedFrom || filters.viewedTo) if (!inDateRange(f.lastViewedAt, filters.viewedFrom, filters.viewedTo)) return false;
@@ -550,22 +857,33 @@
     });
 
     list = [...list].sort(sortByLastViewedOrUpdated);
+    const pageData = await loadPagedList('forms', 'forms', () => list);
+    list = pageData.items || [];
     const tbody = $('#tbody-forms');
     if (!tbody) return;
     tbody.innerHTML = list.map(f => `
       <tr class="form-row-clickable" data-form-id="${escapeHtml(f.id)}">
-        <td>${escapeHtml(f.name)}</td>
-        <td>${escapeHtml(f.createdAt)}</td>
-        <td>${escapeHtml(f.updatedAt)}</td>
-        <td>${escapeHtml(f.lastViewedAt ? new Date(f.lastViewedAt).toLocaleString('ru') : '—')}</td>
+        <td><a href="/forms/${encodeURIComponent(f.id)}" class="form-open-link" data-id="${escapeHtml(f.id)}">${escapeHtml(f.name)}</a></td>
+        <td>${escapeHtml(formatDateTime(f.createdAt))}</td>
+        <td>${escapeHtml(formatDateTime(f.updatedAt))}</td>
+        <td>${escapeHtml(formatDateTime(f.lastViewedAt))}</td>
         <td>${escapeHtml(f.owner)}${isResourceOwner(f) ? '' : ' <span class="access-badge">приглашение</span>'}</td>
+        <td>${escapeHtml(f.comment || '')}</td>
         <td class="cell-actions">${isResourceOwner(f) ? '<button type="button" class="btn-link btn-link-danger delete-form" data-id="' + escapeHtml(f.id) + '" data-name="' + escapeHtml(f.name) + '">Удалить</button>' : '—'}</td>
       </tr>
-    `).join('') || '<tr><td colspan="6">Нет форм</td></tr>';
+    `).join('') || '<tr><td colspan="7">Нет форм</td></tr>';
+    renderPagination('forms', pageData.total || 0, pageData.page || 1, pageData.limit || LIST_PAGE_SIZE, renderFormsList);
+    tbody.querySelectorAll('.form-open-link').forEach(link => {
+      link.addEventListener('click', function (e) {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+        e.preventDefault();
+        navigateToForm(this.dataset.id);
+      });
+    });
     tbody.querySelectorAll('.form-row-clickable').forEach(tr => {
       tr.addEventListener('click', function (e) {
-        if (e.target.closest('.delete-form')) return;
-        openFormView(this.dataset.formId);
+        if (e.target.closest('.delete-form') || e.target.closest('a')) return;
+        navigateToForm(this.dataset.formId);
       });
     });
     tbody.querySelectorAll('.delete-form').forEach(btn => {
@@ -577,57 +895,99 @@
     });
   }
 
-  $('#search-tables-global')?.addEventListener('input', renderTablesList);
+  async function renderUsersList() {
+    const query = ($('#search-users')?.value || '').trim().toLowerCase();
+    const filters = getUsersMultiFilters();
+    let list = loadUsers();
+    if (query) {
+      list = list.filter(user => [user.login, user.role, user.createdAt].some(value => normalizeText(value).includes(query)));
+    }
+    list = list.filter(user => {
+      if (filters.login && !normalizeText(user.login).includes(normalizeText(filters.login))) return false;
+      if (filters.role && !normalizeText(user.role).includes(normalizeText(filters.role))) return false;
+      if (filters.createdFrom || filters.createdTo) if (!inDateRange(user.createdAt, filters.createdFrom, filters.createdTo)) return false;
+      return true;
+    }).sort((a, b) => String(a.login || '').localeCompare(String(b.login || ''), 'ru'));
+
+    const pageData = await loadPagedList('users', 'users', () => list);
+    const users = pageData.items || [];
+    const tbody = $('#tbody-users');
+    if (!tbody) return;
+    tbody.innerHTML = users.length
+      ? users.map(user => '<tr><td>' + escapeHtml(user.login) + '</td><td>' + escapeHtml(user.role || '') + '</td><td>' + escapeHtml(user.createdAt || '') + '</td></tr>').join('')
+      : '<tr><td colspan="3">Пользователи не найдены</td></tr>';
+    renderPagination('users', pageData.total || 0, pageData.page || 1, pageData.limit || LIST_PAGE_SIZE, renderUsersList);
+  }
+
+  function rerenderFromFirstPage(kind, renderFn) {
+    listPages[kind] = 1;
+    renderFn();
+  }
+
+  $('#search-tables-global')?.addEventListener('input', () => rerenderFromFirstPage('tables', renderTablesList));
   $('#btn-table-filters')?.addEventListener('click', function () {
     $('#panel-table-filters')?.classList.toggle('hidden');
   });
   $('#btn-table-filters-reset')?.addEventListener('click', function () {
     $$('#panel-table-filters input').forEach(inp => { inp.value = ''; });
-    renderTablesList();
+    rerenderFromFirstPage('tables', renderTablesList);
   });
   $$('#panel-table-filters input').forEach(inp => {
-    inp.addEventListener('input', renderTablesList);
-    inp.addEventListener('change', renderTablesList);
+    inp.addEventListener('input', () => rerenderFromFirstPage('tables', renderTablesList));
+    inp.addEventListener('change', () => rerenderFromFirstPage('tables', renderTablesList));
   });
   $('#btn-create-table')?.addEventListener('click', function () { showScreen('create-table'); });
 
-  $('#search-forms-global')?.addEventListener('input', renderFormsList);
+  $('#search-forms-global')?.addEventListener('input', () => rerenderFromFirstPage('forms', renderFormsList));
   $('#btn-form-filters')?.addEventListener('click', function () {
     $('#panel-form-filters')?.classList.toggle('hidden');
   });
   $('#btn-form-filters-reset')?.addEventListener('click', function () {
     $$('#panel-form-filters input').forEach(inp => { inp.value = ''; });
-    renderFormsList();
+    rerenderFromFirstPage('forms', renderFormsList);
   });
   $$('#panel-form-filters input').forEach(inp => {
-    inp.addEventListener('input', renderFormsList);
-    inp.addEventListener('change', renderFormsList);
+    inp.addEventListener('input', () => rerenderFromFirstPage('forms', renderFormsList));
+    inp.addEventListener('change', () => rerenderFromFirstPage('forms', renderFormsList));
   });
 
-  $('#search-tables-log')?.addEventListener('input', renderTablesLog);
+  $('#search-tables-log')?.addEventListener('input', () => rerenderFromFirstPage('tables-log', renderTablesLog));
   $('#btn-tables-log-filters')?.addEventListener('click', function () {
     $('#panel-tables-log-filters')?.classList.toggle('hidden');
   });
   $('#btn-tables-log-filters-reset')?.addEventListener('click', function () {
     $$('#panel-tables-log-filters input, #panel-tables-log-filters select').forEach(inp => { inp.value = ''; });
-    renderTablesLog();
+    rerenderFromFirstPage('tables-log', renderTablesLog);
   });
   $$('#panel-tables-log-filters input, #panel-tables-log-filters select').forEach(inp => {
-    inp.addEventListener('input', renderTablesLog);
-    inp.addEventListener('change', renderTablesLog);
+    inp.addEventListener('input', () => rerenderFromFirstPage('tables-log', renderTablesLog));
+    inp.addEventListener('change', () => rerenderFromFirstPage('tables-log', renderTablesLog));
   });
 
-  $('#search-forms-log')?.addEventListener('input', renderFormsLog);
+  $('#search-forms-log')?.addEventListener('input', () => rerenderFromFirstPage('forms-log', renderFormsLog));
   $('#btn-forms-log-filters')?.addEventListener('click', function () {
     $('#panel-forms-log-filters')?.classList.toggle('hidden');
   });
   $('#btn-forms-log-filters-reset')?.addEventListener('click', function () {
     $$('#panel-forms-log-filters input, #panel-forms-log-filters select').forEach(inp => { inp.value = ''; });
-    renderFormsLog();
+    rerenderFromFirstPage('forms-log', renderFormsLog);
   });
   $$('#panel-forms-log-filters input, #panel-forms-log-filters select').forEach(inp => {
-    inp.addEventListener('input', renderFormsLog);
-    inp.addEventListener('change', renderFormsLog);
+    inp.addEventListener('input', () => rerenderFromFirstPage('forms-log', renderFormsLog));
+    inp.addEventListener('change', () => rerenderFromFirstPage('forms-log', renderFormsLog));
+  });
+
+  $('#search-users')?.addEventListener('input', () => rerenderFromFirstPage('users', renderUsersList));
+  $('#btn-users-filters')?.addEventListener('click', function () {
+    $('#panel-users-filters')?.classList.toggle('hidden');
+  });
+  $('#btn-users-filters-reset')?.addEventListener('click', function () {
+    $$('#panel-users-filters input').forEach(inp => { inp.value = ''; });
+    rerenderFromFirstPage('users', renderUsersList);
+  });
+  $$('#panel-users-filters input').forEach(inp => {
+    inp.addEventListener('input', () => rerenderFromFirstPage('users', renderUsersList));
+    inp.addEventListener('change', () => rerenderFromFirstPage('users', renderUsersList));
   });
 
   $('#btn-create-form')?.addEventListener('click', function () { showScreen('create-form'); renderFormBuilderFields(); });
@@ -934,6 +1294,12 @@
         while (tb.cells[r].length <= c) tb.cells[r].push('');
         tb.cells[r][c] = this.value;
         saveTables(tables);
+        addTableHistory(currentTableId, {
+          action: 'Ячейка изменена',
+          user: currentUserLogin() || 'Пользователь',
+          cell: colLetter(c) + (r + 1),
+          value: this.value
+        });
       });
     });
     cellsEl.querySelectorAll('.col-filter').forEach(span => {
@@ -994,6 +1360,12 @@
         while (tb.cells[r].length <= c) tb.cells[r].push('');
         tb.cells[r][c] = this.value;
         saveTables(tables);
+        addTableHistory(currentTableId, {
+          action: 'Ячейка изменена',
+          user: currentUserLogin() || 'Пользователь',
+          cell: colLetter(c) + (r + 1),
+          value: this.value
+        });
       });
     });
   }
@@ -1037,8 +1409,7 @@
   });
 
   $('#back-from-table')?.addEventListener('click', function () {
-    showScreen('tables');
-    renderTablesList();
+    navigateToScreen('tables');
   });
 
   $('#save-table')?.addEventListener('click', function () {
@@ -1077,6 +1448,15 @@
       if (typeof f === 'string') return { id: form.id + '-f' + i, type: 'text', label: f, required: false };
       return { id: f.id || form.id + '-f' + i, type: f.type || 'text', label: f.label || '', required: !!f.required, placeholder: f.placeholder, options: f.options || [], min: f.min, max: f.max };
     });
+  }
+
+  function formatAnswersForLog(form, answers) {
+    const fields = normalizeFormFields(form);
+    return fields.map(field => {
+      const raw = answers?.[field.id];
+      const value = Array.isArray(raw) ? raw.join(', ') : String(raw ?? '');
+      return (field.label || field.id) + ': ' + value;
+    }).filter(line => line.trim() !== ':').join('; ');
   }
 
   function scaleBound(value, fallback) {
@@ -1255,13 +1635,16 @@
     saveFormResponses(responses);
     $('#view-form-fill').querySelectorAll('input, textarea, select').forEach(el => { el.value = ''; });
     $$('input[type="checkbox"], input[type="radio"]', $('#view-form-fill')).forEach(cb => { cb.checked = false; });
-    addFormHistory(form.id, { action: 'Ответ создан', user: localStorage.getItem(STORAGE_KEYS.user) || 'Пользователь' });
+    addFormHistory(form.id, {
+      action: 'Ответ создан',
+      user: localStorage.getItem(STORAGE_KEYS.user) || 'Пользователь',
+      answers: formatAnswersForLog(form, answers)
+    });
     renderFormResponsesBlock();
   });
 
   $('#back-from-form')?.addEventListener('click', function () {
-    showScreen('forms');
-    renderFormsList();
+    navigateToScreen('forms');
   });
 
   $('#save-form')?.addEventListener('click', function () {
@@ -1316,7 +1699,8 @@
     saveTables(tables);
     addTableHistory(id, { action: 'Создано', user });
     this.reset();
-    openTableView(id);
+    openTableInNewTab(id);
+    navigateToScreen('tables');
   });
 
   document.addEventListener('DOMContentLoaded', function () {
@@ -1373,8 +1757,7 @@
     $('#new-form-name').value = '';
     $('#new-form-desc').value = '';
     renderFormBuilderFields();
-    showScreen('forms');
-    renderFormsList();
+    navigateToForm(id);
   });
 
   // ---------- Импорт ----------
@@ -1404,8 +1787,11 @@
     const format = detectedFormat || formatSelect.value;
     if (detectedFormat && formatSelect) formatSelect.value = detectedFormat;
     const reader = new FileReader();
-    reader.onload = function () {
+    reader.onload = async function () {
       try {
+        resultEl.textContent = 'Импорт выполняется...';
+        resultEl.className = 'result-message';
+        resultEl.classList.remove('hidden');
         let data;
         const source = reader.result;
         if (format === 'json') {
@@ -1419,12 +1805,22 @@
         } else {
           throw new Error('Неподдерживаемый формат файла.');
         }
-        replaceAllAppData(mergeImportedStateForCurrentUser(data));
-        resultEl.textContent = 'Импорт выполнен успешно.';
+        const importCounts = {
+          tables: Array.isArray(data.tables) ? data.tables.length : 0,
+          forms: Array.isArray(data.forms) ? data.forms.length : 0,
+          responses: Array.isArray(data.responses) ? data.responses.length : 0,
+          tableLogs: Array.isArray(data.tableLogs) ? data.tableLogs.length : 0,
+          formLogs: Array.isArray(data.formLogs) ? data.formLogs.length : 0
+        };
+        await replaceAllAppData(mergeImportedStateForCurrentUser(data));
+        resultEl.textContent = 'Импорт выполнен успешно: таблиц — ' + importCounts.tables +
+          ', форм — ' + importCounts.forms +
+          ', ответов — ' + importCounts.responses +
+          ', действий в таблицах — ' + importCounts.tableLogs +
+          ', действий в формах — ' + importCounts.formLogs + '.';
         resultEl.className = 'result-message success';
         resultEl.classList.remove('hidden');
-        showScreen('tables');
-        renderTablesList();
+        navigateToScreen('tables');
       } catch (err) {
         resultEl.textContent = 'Ошибка: ' + (err.message || 'неверный формат');
         resultEl.className = 'result-message error';
@@ -1563,7 +1959,7 @@
   });
 
   // ---------- Журналы действий (многокритериальные фильтры) ----------
-  function renderTablesLog() {
+  async function renderTablesLog() {
     const tbody = $('#tbody-tables-log');
     if (!tbody) return;
     const tableIds = accessibleTableIds();
@@ -1575,6 +1971,9 @@
       updatedAt: l.updatedAt || '',
       viewedAt: l.viewedAt || '',
       action: l.action || '',
+      cell: l.cell || '',
+      value: l.value || '',
+      details: l.details || '',
       user: l.user || '',
       date: l.date || ''
     }));
@@ -1585,7 +1984,7 @@
     if (query) {
       rows = rows.filter(r => {
         const viewedDate = r.date ? String(new Date(r.date).toLocaleString('ru')) : '';
-        return [r.tableName, r.action, r.user, viewedDate].some(v => normalizeText(v).includes(query));
+        return [r.tableName, r.action, r.user, r.owner, r.cell, r.value, r.details, viewedDate].some(v => normalizeText(v).includes(query));
       });
     }
 
@@ -1594,6 +1993,8 @@
       if (filters.action && !normalizeText(r.action).includes(normalizeText(filters.action))) return false;
       if (filters.user && !normalizeText(r.user).includes(normalizeText(filters.user))) return false;
       if (filters.owner && !normalizeText(r.owner).includes(normalizeText(filters.owner))) return false;
+      if (filters.cell && !normalizeText(r.cell).includes(normalizeText(filters.cell))) return false;
+      if (filters.value && !normalizeText(r.value).includes(normalizeText(filters.value))) return false;
       if (filters.createdFrom || filters.createdTo) if (!inDateRange(r.createdAt, filters.createdFrom, filters.createdTo)) return false;
       if (filters.updatedFrom || filters.updatedTo) if (!inDateRange(r.updatedAt, filters.updatedFrom, filters.updatedTo)) return false;
       if (filters.viewedFrom || filters.viewedTo) if (!inDateRange(r.viewedAt, filters.viewedFrom, filters.viewedTo)) return false;
@@ -1607,12 +2008,15 @@
       return tb - ta;
     });
 
+    const pageData = await loadPagedList('tables-log', 'tableLogs', () => rows);
+    rows = pageData.items || [];
     tbody.innerHTML = rows.length
-      ? rows.map(r => '<tr><td>' + escapeHtml(r.tableName) + '</td><td>' + escapeHtml(r.action) + '</td><td>' + escapeHtml(r.user) + '</td><td>' + escapeHtml(r.date ? new Date(r.date).toLocaleString('ru') : '') + '</td></tr>').join('')
-      : '<tr><td colspan="4">Действий нет</td></tr>';
+      ? rows.map(r => '<tr><td>' + escapeHtml(r.tableName) + '</td><td>' + escapeHtml(r.action) + '</td><td>' + escapeHtml(r.cell || '—') + '</td><td>' + escapeHtml(r.value || r.details || '—') + '</td><td>' + escapeHtml(r.user) + '</td><td>' + escapeHtml(r.date ? new Date(r.date).toLocaleString('ru') : '') + '</td></tr>').join('')
+      : '<tr><td colspan="6">Действий нет</td></tr>';
+    renderPagination('tables-log', pageData.total || 0, pageData.page || 1, pageData.limit || LIST_PAGE_SIZE, renderTablesLog);
   }
 
-  function renderFormsLog() {
+  async function renderFormsLog() {
     const tbody = $('#tbody-forms-log');
     if (!tbody) return;
     const formIds = accessibleFormIds();
@@ -1625,6 +2029,8 @@
       createdAt: l.createdAt || '',
       updatedAt: l.updatedAt || '',
       action: l.action || '',
+      answers: l.answers || '',
+      details: l.details || '',
       user: l.user || '',
       date: l.date || ''
     }));
@@ -1635,7 +2041,7 @@
     if (query) {
       rows = rows.filter(r => {
         const viewedDate = r.date ? String(new Date(r.date).toLocaleString('ru')) : '';
-        return [r.formName, r.action, r.user, viewedDate].some(v => normalizeText(v).includes(query));
+        return [r.formName, r.action, r.user, r.owner, r.status, r.answers, r.details, viewedDate].some(v => normalizeText(v).includes(query));
       });
     }
 
@@ -1644,6 +2050,7 @@
       if (filters.action && !normalizeText(r.action).includes(normalizeText(filters.action))) return false;
       if (filters.user && !normalizeText(r.user).includes(normalizeText(filters.user))) return false;
       if (filters.owner && !normalizeText(r.owner).includes(normalizeText(filters.owner))) return false;
+      if (filters.answers && !normalizeText(r.answers).includes(normalizeText(filters.answers))) return false;
       if (filters.status && r.status !== filters.status) return false;
       if (!inNumberRange(r.fieldsCount, filters.fieldsMin, filters.fieldsMax)) return false;
       if (filters.createdFrom || filters.createdTo) if (!inDateRange(r.createdAt, filters.createdFrom, filters.createdTo)) return false;
@@ -1658,9 +2065,12 @@
       return tb - ta;
     });
 
+    const pageData = await loadPagedList('forms-log', 'formLogs', () => rows);
+    rows = pageData.items || [];
     tbody.innerHTML = rows.length
-      ? rows.map(r => '<tr><td>' + escapeHtml(r.formName) + '</td><td>' + escapeHtml(r.action) + '</td><td>' + escapeHtml(r.user) + '</td><td>' + escapeHtml(r.date ? new Date(r.date).toLocaleString('ru') : '') + '</td></tr>').join('')
-      : '<tr><td colspan="4">Действий нет</td></tr>';
+      ? rows.map(r => '<tr><td>' + escapeHtml(r.formName) + '</td><td>' + escapeHtml(r.action) + '</td><td>' + escapeHtml(r.answers || r.details || '—') + '</td><td>' + escapeHtml(r.user) + '</td><td>' + escapeHtml(r.date ? new Date(r.date).toLocaleString('ru') : '') + '</td></tr>').join('')
+      : '<tr><td colspan="5">Действий нет</td></tr>';
+    renderPagination('forms-log', pageData.total || 0, pageData.page || 1, pageData.limit || LIST_PAGE_SIZE, renderFormsLog);
   }
 
   // ---------- Статистика (метаданные и строки выбранной таблицы) ----------

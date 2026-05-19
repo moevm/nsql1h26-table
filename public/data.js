@@ -167,6 +167,15 @@ async function fetchJson(url, options) {
   return data;
 }
 
+async function fetchList(type, params = {}) {
+  const query = new URLSearchParams({ type });
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    query.set(key, String(value));
+  });
+  return fetchJson('/api/list?' + query.toString());
+}
+
 function setAuthSession(user, csrfToken) {
   if (user?.login) localStorage.setItem(STORAGE_KEYS.user, user.login);
   if (csrfToken) sessionStorage.setItem(CSRF_STORAGE_KEY, csrfToken);
@@ -275,7 +284,7 @@ function loadTables() {
 function saveTables(tables) {
   const list = (tables || []).map(normalizeTable);
   writeJson(STORAGE_KEYS.tables, list);
-  persistState({ tables: list });
+  return persistState({ tables: list });
 }
 
 function loadForms() {
@@ -285,7 +294,7 @@ function loadForms() {
 function saveForms(forms) {
   const list = (forms || []).map(normalizeForm);
   writeJson(STORAGE_KEYS.forms, list);
-  persistState({ forms: list });
+  return persistState({ forms: list });
 }
 
 function loadFormResponses() {
@@ -295,7 +304,7 @@ function loadFormResponses() {
 function saveFormResponses(arr) {
   const responses = arr || [];
   writeJson(STORAGE_FORM_RESPONSES, responses);
-  persistState({ responses });
+  return persistState({ responses });
 }
 
 function loadTableLogs() {
@@ -304,7 +313,7 @@ function loadTableLogs() {
 
 function saveTableLogs(logs) {
   writeJson(STORAGE_KEYS.tableLogs, logs || []);
-  persistState({ tableLogs: logs || [] });
+  return persistState({ tableLogs: logs || [] });
 }
 
 function loadFormLogs() {
@@ -313,7 +322,7 @@ function loadFormLogs() {
 
 function saveFormLogs(logs) {
   writeJson(STORAGE_KEYS.formLogs, logs || []);
-  persistState({ formLogs: logs || [] });
+  return persistState({ formLogs: logs || [] });
 }
 
 function addTableHistory(tableId, entry) {
@@ -395,11 +404,13 @@ function getAppState() {
 }
 
 function replaceAllAppData(data) {
-  if (Array.isArray(data.tables)) saveTables(data.tables);
-  if (Array.isArray(data.forms)) saveForms(data.forms);
-  if (Array.isArray(data.responses)) saveFormResponses(data.responses);
-  if (Array.isArray(data.tableLogs)) saveTableLogs(data.tableLogs);
-  if (Array.isArray(data.formLogs)) saveFormLogs(data.formLogs);
+  const saves = [];
+  if (Array.isArray(data.tables)) saves.push(saveTables(data.tables));
+  if (Array.isArray(data.forms)) saves.push(saveForms(data.forms));
+  if (Array.isArray(data.responses)) saves.push(saveFormResponses(data.responses));
+  if (Array.isArray(data.tableLogs)) saves.push(saveTableLogs(data.tableLogs));
+  if (Array.isArray(data.formLogs)) saves.push(saveFormLogs(data.formLogs));
+  return Promise.all(saves);
 }
 
 window.appDataReady = Promise.resolve();

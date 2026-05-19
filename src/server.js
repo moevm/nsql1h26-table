@@ -529,7 +529,10 @@ function cleanActivityLog(logRaw, index, type, validIds, validLogins, now) {
         owner: cleanText(logRaw?.owner || logRaw?.diff?.owner, MAX_NAME_LENGTH),
         createdAt: cleanDate(logRaw?.createdAt || logRaw?.diff?.createdAt, ''),
         updatedAt: cleanDate(logRaw?.updatedAt || logRaw?.diff?.updatedAt, ''),
-        viewedAt: cleanDate(logRaw?.viewedAt || logRaw?.diff?.viewedAt, '')
+        viewedAt: cleanDate(logRaw?.viewedAt || logRaw?.diff?.viewedAt, ''),
+        cell: cleanText(logRaw?.cell || logRaw?.diff?.cell, 32),
+        value: cleanText(logRaw?.value || logRaw?.diff?.value, MAX_TEXT_LENGTH),
+        details: cleanText(logRaw?.details || logRaw?.diff?.details, MAX_TEXT_LENGTH)
       }
     : {
         formName: cleanText(logRaw?.formName || logRaw?.diff?.formName, MAX_NAME_LENGTH),
@@ -537,7 +540,9 @@ function cleanActivityLog(logRaw, index, type, validIds, validLogins, now) {
         status: cleanText(logRaw?.status || logRaw?.diff?.status, 32),
         fieldsCount: cleanNumber(logRaw?.fieldsCount || logRaw?.diff?.fieldsCount, 0, MAX_FIELDS_PER_FORM, 0),
         createdAt: cleanDate(logRaw?.createdAt || logRaw?.diff?.createdAt, ''),
-        updatedAt: cleanDate(logRaw?.updatedAt || logRaw?.diff?.updatedAt, '')
+        updatedAt: cleanDate(logRaw?.updatedAt || logRaw?.diff?.updatedAt, ''),
+        answers: cleanText(logRaw?.answers || logRaw?.diff?.answers, MAX_TEXT_LENGTH),
+        details: cleanText(logRaw?.details || logRaw?.diff?.details, MAX_TEXT_LENGTH)
       };
   return {
     _key: cleanId(docId(logRaw) || `${type}-log-${index + 1}`, `${type}-log`),
@@ -653,7 +658,10 @@ function activityToTableLog(log, tablesById) {
     date: log.createdAt || '',
     createdAt: log.diff?.createdAt || table?.createdAt || '',
     updatedAt: log.diff?.updatedAt || table?.updatedAt || '',
-    viewedAt: log.diff?.viewedAt || table?.lastViewedAt || ''
+    viewedAt: log.diff?.viewedAt || table?.lastViewedAt || '',
+    cell: log.diff?.cell || '',
+    value: log.diff?.value || '',
+    details: log.diff?.details || ''
   };
 }
 
@@ -670,7 +678,9 @@ function activityToFormLog(log, formsById) {
     user: log.userId || '',
     date: log.createdAt || '',
     createdAt: log.diff?.createdAt || form?.createdAt || '',
-    updatedAt: log.diff?.updatedAt || form?.updatedAt || ''
+    updatedAt: log.diff?.updatedAt || form?.updatedAt || '',
+    answers: log.diff?.answers || '',
+    details: log.diff?.details || ''
   };
 }
 
@@ -1119,6 +1129,166 @@ async function getState(userLogin) {
   return filterStateForUser(await getRawState(), userLogin);
 }
 
+function textIncludes(value, query) {
+  const needle = normalizeLogin(query).toLowerCase();
+  if (!needle) return true;
+  return String(value ?? '').toLowerCase().includes(needle);
+}
+
+function parseDateTimeParam(value, isEnd) {
+  const raw = normalizeLogin(value);
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const date = new Date(raw + (isEnd ? 'T23:59:59.999' : 'T00:00:00.000'));
+    return Number.isNaN(date.getTime()) ? null : date.getTime();
+  }
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? null : date.getTime();
+}
+
+function dateInRange(value, from, to) {
+  if (from == null && to == null) return true;
+  const time = new Date(value || '').getTime();
+  if (Number.isNaN(time)) return false;
+  if (from != null && time < from) return false;
+  if (to != null && time > to) return false;
+  return true;
+}
+
+function numberInRange(value, min, max) {
+  if (min == null && max == null) return true;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return false;
+  if (min != null && num < min) return false;
+  if (max != null && num > max) return false;
+  return true;
+}
+
+function listParams(searchParams) {
+  const limit = Math.min(100, Math.max(1, Number(searchParams.get('limit') || 10)));
+  const page = Math.max(1, Number(searchParams.get('page') || 1));
+  const offset = (page - 1) * limit;
+  return { limit, page, offset };
+}
+
+function paginate(items, searchParams) {
+  const { limit, page, offset } = listParams(searchParams);
+  return {
+    items: items.slice(offset, offset + limit),
+    total: items.length,
+    page,
+    limit
+  };
+}
+
+function responseAnswersText(response) {
+  const answers = response?.answers && typeof response.answers === 'object' ? response.answers : {};
+  return Object.entries(answers)
+    .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : String(value ?? '')}`)
+    .join('; ');
+}
+
+function enrichFormLogAnswers(log, responses) {
+  if (log.answers) return log.answers;
+  if (!log.formId) return '';
+  const sameForm = (responses || []).filter(response => response.formId === log.formId && (!log.user || sameLogin(response.user, log.user)));
+  if (!sameForm.length) return '';
+  sameForm.sort((a, b) => Math.abs(new Date(a.submittedAt || '').getTime() - new Date(log.date || '').getTime()) -
+    Math.abs(new Date(b.submittedAt || '').getTime() - new Date(log.date || '').getTime()));
+  return responseAnswersText(sameForm[0]);
+}
+
+function filterList(type, state, searchParams) {
+  const q = normalizeLogin(searchParams.get('q')).toLowerCase();
+  const get = key => normalizeLogin(searchParams.get(key));
+  const from = key => parseDateTimeParam(searchParams.get(`${key}From`), false);
+  const to = key => parseDateTimeParam(searchParams.get(`${key}To`), true);
+
+  if (type === 'tables') {
+    return (state.tables || []).filter(item => {
+      if (q && ![item.name, item.owner, item.ownerLogin, item.comment, item.createdAt, item.updatedAt, item.lastViewedAt].some(value => textIncludes(value, q))) return false;
+      if (!textIncludes(item.name, get('name'))) return false;
+      if (!textIncludes(item.owner || item.ownerLogin, get('owner'))) return false;
+      if (!textIncludes(item.comment, get('comment'))) return false;
+      if (!dateInRange(item.createdAt, from('created'), to('created'))) return false;
+      if (!dateInRange(item.updatedAt, from('updated'), to('updated'))) return false;
+      if (!dateInRange(item.lastViewedAt, from('viewed'), to('viewed'))) return false;
+      return true;
+    }).sort((a, b) => new Date(b.lastViewedAt || b.updatedAt || 0) - new Date(a.lastViewedAt || a.updatedAt || 0));
+  }
+
+  if (type === 'forms') {
+    return (state.forms || []).filter(item => {
+      if (q && ![item.name, item.owner, item.ownerLogin, item.comment, item.description, item.createdAt, item.updatedAt, item.lastViewedAt].some(value => textIncludes(value, q))) return false;
+      if (!textIncludes(item.name, get('name'))) return false;
+      if (!textIncludes(item.owner || item.ownerLogin, get('owner'))) return false;
+      if (!textIncludes(item.comment, get('comment'))) return false;
+      if (!dateInRange(item.createdAt, from('created'), to('created'))) return false;
+      if (!dateInRange(item.updatedAt, from('updated'), to('updated'))) return false;
+      if (!dateInRange(item.lastViewedAt, from('viewed'), to('viewed'))) return false;
+      return true;
+    }).sort((a, b) => new Date(b.lastViewedAt || b.updatedAt || 0) - new Date(a.lastViewedAt || a.updatedAt || 0));
+  }
+
+  if (type === 'users') {
+    return (state.users || []).filter(item => {
+      if (q && ![item.login, item.role, item.createdAt].some(value => textIncludes(value, q))) return false;
+      if (!textIncludes(item.login, get('login'))) return false;
+      if (!textIncludes(item.role, get('role'))) return false;
+      if (!dateInRange(item.createdAt, from('created'), to('created'))) return false;
+      return true;
+    }).sort((a, b) => String(a.login || '').localeCompare(String(b.login || ''), 'ru'));
+  }
+
+  if (type === 'tableLogs') {
+    return (state.tableLogs || []).filter(item => {
+      if (q && ![item.tableName, item.action, item.user, item.owner, item.cell, item.value, item.details, item.date].some(value => textIncludes(value, q))) return false;
+      if (!textIncludes(item.tableName, get('tableName'))) return false;
+      if (!textIncludes(item.action, get('action'))) return false;
+      if (!textIncludes(item.user, get('user'))) return false;
+      if (!textIncludes(item.owner, get('owner'))) return false;
+      if (!textIncludes(item.cell, get('cell'))) return false;
+      if (!textIncludes(item.value, get('value'))) return false;
+      if (!dateInRange(item.createdAt, from('created'), to('created'))) return false;
+      if (!dateInRange(item.updatedAt, from('updated'), to('updated'))) return false;
+      if (!dateInRange(item.viewedAt, from('viewed'), to('viewed'))) return false;
+      if (!dateInRange(item.date, from('date'), to('date'))) return false;
+      return true;
+    }).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+  }
+
+  if (type === 'formLogs') {
+    const responses = state.responses || [];
+    return (state.formLogs || []).map(log => ({ ...log, answers: enrichFormLogAnswers(log, responses) })).filter(item => {
+      if (q && ![item.formName, item.action, item.user, item.owner, item.status, item.answers, item.details, item.date].some(value => textIncludes(value, q))) return false;
+      if (!textIncludes(item.formName, get('formName'))) return false;
+      if (!textIncludes(item.action, get('action'))) return false;
+      if (!textIncludes(item.user, get('user'))) return false;
+      if (!textIncludes(item.owner, get('owner'))) return false;
+      if (!textIncludes(item.answers, get('answers'))) return false;
+      if (get('status') && item.status !== get('status')) return false;
+      if (!numberInRange(item.fieldsCount, searchParams.get('fieldsMin') ? Number(searchParams.get('fieldsMin')) : null, searchParams.get('fieldsMax') ? Number(searchParams.get('fieldsMax')) : null)) return false;
+      if (!dateInRange(item.createdAt, from('created'), to('created'))) return false;
+      if (!dateInRange(item.updatedAt, from('updated'), to('updated'))) return false;
+      if (!dateInRange(item.date, from('date'), to('date'))) return false;
+      return true;
+    }).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+  }
+
+  return null;
+}
+
+async function getListState(type, userLogin, searchParams) {
+  const state = await getState(userLogin);
+  const items = filterList(type, state, searchParams);
+  if (!items) {
+    const err = new Error('Unknown list type');
+    err.statusCode = 400;
+    throw err;
+  }
+  return paginate(items, searchParams);
+}
+
 function mergeResourcesForUser(existingDocs, incomingDocs, userLogin, options = {}) {
   const user = normalizeLogin(userLogin);
   if (!user) throw new Error('Authentication required');
@@ -1283,6 +1453,8 @@ function clientError(err, fallback = 'Bad request') {
 
 function staticFilePath(pathname) {
   const normalized = path.posix.normalize(pathname || '/');
+  if (/^\/(?:tables|forms)(?:\/[a-zA-Z0-9_.:@-]+)?$/.test(normalized)) return STATIC_FILES.get('/index.html');
+  if (['/table-actions', '/form-actions', '/tables-log', '/forms-log', '/users', '/import', '/export', '/statistics'].includes(normalized)) return STATIC_FILES.get('/index.html');
   return STATIC_FILES.get(normalized) || null;
 }
 
@@ -1436,6 +1608,21 @@ async function handleApi(req, res, pathname) {
     } catch (err) {
       console.error('State read failed:', err);
       sendJson(res, 500, { error: 'Internal server error' });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/api/list') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    try {
+      const url = new URL(req.url || '/', 'http://localhost');
+      const type = normalizeLogin(url.searchParams.get('type'));
+      sendJson(res, 200, await getListState(type, session.user.login, url.searchParams));
+    } catch (err) {
+      const status = err.statusCode || 400;
+      if (status >= 500) console.error('List read failed:', err);
+      sendJson(res, status, { error: clientError(err) });
     }
     return;
   }
