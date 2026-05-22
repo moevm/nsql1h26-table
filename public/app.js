@@ -10,8 +10,10 @@
     export: 'Экспорт данных',
     statistics: 'Статистика',
     'tables-log': 'Действия в таблицах',
+    'table-log-view': 'Действие в таблице',
     'forms-log': 'Действия в формах',
-    users: 'Пользователи'
+    users: 'Пользователи',
+    'user-view': 'Пользователь'
   };
 
   const ROUTES = {
@@ -64,6 +66,12 @@
     if (/^\/forms\/([^/]+)$/.test(path)) {
       return { screen: 'form-view', formId: decodeURIComponent(path.split('/').pop()) };
     }
+    if (/^\/users\/([^/]+)$/.test(path)) {
+      return { screen: 'user-view', userLogin: decodeURIComponent(path.split('/').pop()) };
+    }
+    if (/^\/table-actions\/([^/]+)$/.test(path)) {
+      return { screen: 'table-log-view', tableLogId: decodeURIComponent(path.split('/').pop()) };
+    }
     return ROUTES[path] || ROUTES['/'];
   }
 
@@ -93,6 +101,18 @@
     openFormView(id);
   }
 
+  function navigateToUser(login) {
+    const path = '/users/' + encodeURIComponent(login);
+    if (window.location.pathname !== path) history.pushState({ screen: 'user-view', login }, '', path);
+    openUserView(login);
+  }
+
+  function navigateToTableLog(id) {
+    const path = '/table-actions/' + encodeURIComponent(id);
+    if (window.location.pathname !== path) history.pushState({ screen: 'table-log-view', id }, '', path);
+    openTableLogView(id);
+  }
+
   function showScreen(screenId) {
     currentScreen = screenId;
     $$('.screen-content').forEach(el => el.classList.add('hidden'));
@@ -101,8 +121,9 @@
     const title = TITLES[screenId] || screenId;
     const h = $('#header-title');
     if (h) h.textContent = title;
+    const activeNavScreen = screenId === 'user-view' ? 'users' : (screenId === 'table-log-view' ? 'tables-log' : screenId);
     $$('.nav-link').forEach(link => {
-      link.classList.toggle('active', link.dataset.screen === screenId);
+      link.classList.toggle('active', link.dataset.screen === activeNavScreen);
     });
     var searchTables = $('#header-search-wrap');
     var searchForms = $('#header-search-forms');
@@ -138,6 +159,10 @@
       openTableView(route.tableId);
     } else if (route.formId) {
       openFormView(route.formId);
+    } else if (route.userLogin) {
+      openUserView(route.userLogin);
+    } else if (route.tableLogId) {
+      openTableLogView(route.tableLogId);
     } else {
       showScreen(route.screen || 'tables');
       if ((route.screen || 'tables') === 'tables') renderTablesList();
@@ -258,6 +283,8 @@
     const route = routeFromLocation();
     if (route.tableId) openTableView(route.tableId);
     else if (route.formId) openFormView(route.formId);
+    else if (route.userLogin) openUserView(route.userLogin);
+    else if (route.tableLogId) openTableLogView(route.tableLogId);
     else showScreen(route.screen || 'tables');
   });
 
@@ -300,6 +327,14 @@
     return localStorage.getItem(STORAGE_KEYS.user) || '';
   }
 
+  function currentUserRole() {
+    return findUser(currentUserLogin())?.role || 'user';
+  }
+
+  function isCurrentUserAdmin() {
+    return currentUserRole() === 'administrator';
+  }
+
   function sameLogin(a, b) {
     return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
   }
@@ -327,6 +362,11 @@
     return new Set(accessibleTables().map(table => table.id));
   }
 
+  function accessibleTableLogs() {
+    const tableIds = accessibleTableIds();
+    return loadTableLogs().filter(log => !log.tableId || tableIds.has(log.tableId) || sameLogin(log.user, currentUserLogin()));
+  }
+
   function accessibleFormIds() {
     return new Set(accessibleForms().map(form => form.id));
   }
@@ -345,6 +385,10 @@
 
   function findAccessibleForm(id) {
     return accessibleForms().find(form => form.id === id);
+  }
+
+  function findAccessibleTableLog(id) {
+    return accessibleTableLogs().find(log => String(log.id || '') === String(id || ''));
   }
 
   function accessDenied(resourceType) {
@@ -590,7 +634,9 @@
       login: ($('#filter-users-login')?.value || '').trim(),
       role: ($('#filter-users-role')?.value || '').trim(),
       createdFrom: parseDateBoundary($('#filter-users-created-from')?.value, false),
-      createdTo: parseDateBoundary($('#filter-users-created-to')?.value, true)
+      createdTo: parseDateBoundary($('#filter-users-created-to')?.value, true),
+      updatedFrom: parseDateBoundary($('#filter-users-updated-from')?.value, false),
+      updatedTo: parseDateBoundary($('#filter-users-updated-to')?.value, true)
     };
   }
 
@@ -655,7 +701,7 @@
         q: rawFilterValue('#search-users'),
         login: rawFilterValue('#filter-users-login'),
         role: rawFilterValue('#filter-users-role'),
-        ...commonServerDateParams('users', ['created'])
+        ...commonServerDateParams('users', ['created', 'updated'])
       };
     }
     return {};
@@ -900,12 +946,13 @@
     const filters = getUsersMultiFilters();
     let list = loadUsers();
     if (query) {
-      list = list.filter(user => [user.login, user.role, user.createdAt].some(value => normalizeText(value).includes(query)));
+      list = list.filter(user => [user.login, user.role, user.createdAt, user.updatedAt].some(value => normalizeText(value).includes(query)));
     }
     list = list.filter(user => {
       if (filters.login && !normalizeText(user.login).includes(normalizeText(filters.login))) return false;
       if (filters.role && !normalizeText(user.role).includes(normalizeText(filters.role))) return false;
       if (filters.createdFrom || filters.createdTo) if (!inDateRange(user.createdAt, filters.createdFrom, filters.createdTo)) return false;
+      if (filters.updatedFrom || filters.updatedTo) if (!inDateRange(user.updatedAt, filters.updatedFrom, filters.updatedTo)) return false;
       return true;
     }).sort((a, b) => String(a.login || '').localeCompare(String(b.login || ''), 'ru'));
 
@@ -914,10 +961,84 @@
     const tbody = $('#tbody-users');
     if (!tbody) return;
     tbody.innerHTML = users.length
-      ? users.map(user => '<tr><td>' + escapeHtml(user.login) + '</td><td>' + escapeHtml(user.role || '') + '</td><td>' + escapeHtml(user.createdAt || '') + '</td></tr>').join('')
-      : '<tr><td colspan="3">Пользователи не найдены</td></tr>';
+      ? users.map(user => '<tr class="user-row-clickable" data-login="' + escapeHtml(user.login) + '"><td><a href="/users/' + encodeURIComponent(user.login) + '" class="user-open-link" data-login="' + escapeHtml(user.login) + '">' + escapeHtml(user.login) + '</a></td><td>' + escapeHtml(user.role || '') + '</td><td>' + escapeHtml(formatDateTime(user.createdAt)) + '</td><td>' + escapeHtml(formatDateTime(user.updatedAt || user.createdAt)) + '</td></tr>').join('')
+      : '<tr><td colspan="4">Пользователи не найдены</td></tr>';
     renderPagination('users', pageData.total || 0, pageData.page || 1, pageData.limit || LIST_PAGE_SIZE, renderUsersList);
+    tbody.querySelectorAll('.user-open-link').forEach(link => {
+      link.addEventListener('click', function (e) {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+        e.preventDefault();
+        navigateToUser(this.dataset.login);
+      });
+    });
+    tbody.querySelectorAll('.user-row-clickable').forEach(tr => {
+      tr.addEventListener('click', function (e) {
+        if (e.target.closest('a')) return;
+        navigateToUser(this.dataset.login);
+      });
+    });
   }
+
+  function openUserView(login) {
+    const user = findUser(login);
+    if (!user) {
+      alert('Пользователь не найден.');
+      navigateToScreen('users');
+      return;
+    }
+
+    showScreen('user-view');
+    $('#view-user-title').textContent = user.login || 'Пользователь';
+    $('#view-user-login').value = user.login || '';
+    $('#view-user-role').value = user.role || 'user';
+    $('#view-user-created').value = formatDateTime(user.createdAt);
+    $('#view-user-updated').value = formatDateTime(user.updatedAt || user.createdAt);
+    $('#user-meta').textContent = 'Создан: ' + formatDateTime(user.createdAt) + ', Изменён: ' + formatDateTime(user.updatedAt || user.createdAt);
+    $('#user-edit-result')?.classList.add('hidden');
+
+    const canEdit = isCurrentUserAdmin();
+    $('#view-user-role').disabled = !canEdit;
+    $('#save-user')?.classList.toggle('hidden', !canEdit);
+    $('#user-edit-readonly')?.classList.toggle('hidden', canEdit);
+  }
+
+  $('#back-from-user')?.addEventListener('click', function () {
+    navigateToScreen('users');
+  });
+
+  $('#save-user')?.addEventListener('click', async function () {
+    const login = $('#view-user-login')?.value || '';
+    const role = $('#view-user-role')?.value || 'user';
+    const resultEl = $('#user-edit-result');
+    try {
+      this.disabled = true;
+      if (resultEl) {
+        resultEl.textContent = 'Сохранение...';
+        resultEl.className = 'result-message';
+        resultEl.classList.remove('hidden');
+      }
+      const user = await updateUser(login, { role });
+      if (user) {
+        $('#view-user-role').value = user.role || 'user';
+        $('#view-user-created').value = formatDateTime(user.createdAt);
+        $('#view-user-updated').value = formatDateTime(user.updatedAt || user.createdAt);
+        $('#user-meta').textContent = 'Создан: ' + formatDateTime(user.createdAt) + ', Изменён: ' + formatDateTime(user.updatedAt || user.createdAt);
+      }
+      if (resultEl) {
+        resultEl.textContent = 'Пользователь сохранён.';
+        resultEl.className = 'result-message success';
+        resultEl.classList.remove('hidden');
+      }
+    } catch (err) {
+      if (resultEl) {
+        resultEl.textContent = 'Ошибка: ' + (err.message || 'не удалось сохранить пользователя');
+        resultEl.className = 'result-message error';
+        resultEl.classList.remove('hidden');
+      }
+    } finally {
+      this.disabled = false;
+    }
+  });
 
   function rerenderFromFirstPage(kind, renderFn) {
     listPages[kind] = 1;
@@ -1820,7 +1941,6 @@
           ', действий в формах — ' + importCounts.formLogs + '.';
         resultEl.className = 'result-message success';
         resultEl.classList.remove('hidden');
-        navigateToScreen('tables');
       } catch (err) {
         resultEl.textContent = 'Ошибка: ' + (err.message || 'неверный формат');
         resultEl.className = 'result-message error';
@@ -1962,8 +2082,8 @@
   async function renderTablesLog() {
     const tbody = $('#tbody-tables-log');
     if (!tbody) return;
-    const tableIds = accessibleTableIds();
-    let rows = loadTableLogs().filter(l => !l.tableId || tableIds.has(l.tableId) || sameLogin(l.user, currentUserLogin())).map(l => ({
+    let rows = accessibleTableLogs().map(l => ({
+      id: l.id || '',
       tableId: l.tableId || '',
       tableName: l.tableName || '',
       owner: l.owner || '',
@@ -1983,8 +2103,19 @@
 
     if (query) {
       rows = rows.filter(r => {
-        const viewedDate = r.date ? String(new Date(r.date).toLocaleString('ru')) : '';
-        return [r.tableName, r.action, r.user, r.owner, r.cell, r.value, r.details, viewedDate].some(v => normalizeText(v).includes(query));
+        return [
+          r.tableName,
+          r.action,
+          r.user,
+          r.owner,
+          r.cell,
+          r.value,
+          r.details,
+          formatDateTime(r.createdAt),
+          formatDateTime(r.updatedAt),
+          formatDateTime(r.viewedAt),
+          formatDateTime(r.date)
+        ].some(v => normalizeText(v).includes(query));
       });
     }
 
@@ -2011,10 +2142,61 @@
     const pageData = await loadPagedList('tables-log', 'tableLogs', () => rows);
     rows = pageData.items || [];
     tbody.innerHTML = rows.length
-      ? rows.map(r => '<tr><td>' + escapeHtml(r.tableName) + '</td><td>' + escapeHtml(r.action) + '</td><td>' + escapeHtml(r.cell || '—') + '</td><td>' + escapeHtml(r.value || r.details || '—') + '</td><td>' + escapeHtml(r.user) + '</td><td>' + escapeHtml(r.date ? new Date(r.date).toLocaleString('ru') : '') + '</td></tr>').join('')
-      : '<tr><td colspan="6">Действий нет</td></tr>';
+      ? rows.map(r => '<tr class="table-log-row-clickable" data-log-id="' + escapeHtml(r.id || '') + '">' +
+        '<td><a href="/table-actions/' + encodeURIComponent(r.id || '') + '" class="table-log-open-link" data-log-id="' + escapeHtml(r.id || '') + '">' + escapeHtml(r.tableName || '—') + '</a></td>' +
+        '<td>' + escapeHtml(r.action || '—') + '</td>' +
+        '<td>' + escapeHtml(r.user || '—') + '</td>' +
+        '<td>' + escapeHtml(r.owner || '—') + '</td>' +
+        '<td>' + escapeHtml(r.cell || '—') + '</td>' +
+        '<td>' + escapeHtml(r.value || r.details || '—') + '</td>' +
+        '<td>' + escapeHtml(formatDateTime(r.createdAt)) + '</td>' +
+        '<td>' + escapeHtml(formatDateTime(r.updatedAt)) + '</td>' +
+        '<td>' + escapeHtml(formatDateTime(r.viewedAt)) + '</td>' +
+        '<td>' + escapeHtml(formatDateTime(r.date)) + '</td>' +
+      '</tr>').join('')
+      : '<tr><td colspan="10">Действий нет</td></tr>';
     renderPagination('tables-log', pageData.total || 0, pageData.page || 1, pageData.limit || LIST_PAGE_SIZE, renderTablesLog);
+    tbody.querySelectorAll('.table-log-open-link').forEach(link => {
+      link.addEventListener('click', function (e) {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+        e.preventDefault();
+        navigateToTableLog(this.dataset.logId);
+      });
+    });
+    tbody.querySelectorAll('.table-log-row-clickable').forEach(tr => {
+      tr.addEventListener('click', function (e) {
+        if (e.target.closest('a')) return;
+        navigateToTableLog(this.dataset.logId);
+      });
+    });
   }
+
+  function openTableLogView(id) {
+    const log = findAccessibleTableLog(id);
+    if (!log) {
+      alert('Действие недоступно или не найдено.');
+      navigateToScreen('tables-log');
+      return;
+    }
+
+    showScreen('table-log-view');
+    $('#view-table-log-title').textContent = log.action || 'Действие в таблице';
+    $('#table-log-meta').textContent = 'Дата действия: ' + formatDateTime(log.date);
+    $('#view-table-log-table').value = log.tableName || '—';
+    $('#view-table-log-action').value = log.action || '—';
+    $('#view-table-log-user').value = log.user || '—';
+    $('#view-table-log-owner').value = log.owner || '—';
+    $('#view-table-log-cell').value = log.cell || '—';
+    $('#view-table-log-value').value = log.value || log.details || '—';
+    $('#view-table-log-created').value = formatDateTime(log.createdAt);
+    $('#view-table-log-updated').value = formatDateTime(log.updatedAt);
+    $('#view-table-log-viewed').value = formatDateTime(log.viewedAt);
+    $('#view-table-log-date').value = formatDateTime(log.date);
+  }
+
+  $('#back-from-table-log')?.addEventListener('click', function () {
+    navigateToScreen('tables-log');
+  });
 
   async function renderFormsLog() {
     const tbody = $('#tbody-forms-log');

@@ -15,9 +15,9 @@ const API_BASE = window.location.protocol === 'file:' ? 'http://127.0.0.1:8081' 
 const CSRF_STORAGE_KEY = 'app_csrf_token';
 
 const defaultUsers = [
-  { login: 'admin', role: 'administrator', createdAt: '2024-01-01T09:00:00.000Z' },
-  { login: 'analyst', role: 'analyst', createdAt: '2024-01-02T09:00:00.000Z' },
-  { login: 'editor', role: 'editor', createdAt: '2024-01-03T09:00:00.000Z' }
+  { login: 'admin', role: 'administrator', createdAt: '2024-01-01T09:00:00.000Z', updatedAt: '2024-01-01T09:00:00.000Z' },
+  { login: 'analyst', role: 'analyst', createdAt: '2024-01-02T09:00:00.000Z', updatedAt: '2024-01-02T09:00:00.000Z' },
+  { login: 'editor', role: 'editor', createdAt: '2024-01-03T09:00:00.000Z', updatedAt: '2024-01-03T09:00:00.000Z' }
 ];
 
 const OWNER_LOGIN_BY_NAME = {
@@ -174,6 +174,21 @@ async function fetchList(type, params = {}) {
     query.set(key, String(value));
   });
   return fetchJson('/api/list?' + query.toString());
+}
+
+async function updateUser(login, patch) {
+  const data = await fetchJson('/api/users/' + encodeURIComponent(login), {
+    method: 'PATCH',
+    body: JSON.stringify(patch || {})
+  });
+  if (data.user) {
+    const users = loadUsers();
+    const index = users.findIndex(user => String(user.login || '').toLowerCase() === String(data.user.login || '').toLowerCase());
+    if (index >= 0) users[index] = data.user;
+    else users.push(data.user);
+    saveUsers(users);
+  }
+  return data.user;
 }
 
 function setAuthSession(user, csrfToken) {

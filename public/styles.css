@@ -362,11 +362,15 @@ body {
 }
 
 .table-row-clickable,
-.form-row-clickable {
+.table-log-row-clickable,
+.form-row-clickable,
+.user-row-clickable {
   cursor: pointer;
 }
 .table-row-clickable:hover,
-.form-row-clickable:hover {
+.table-log-row-clickable:hover,
+.form-row-clickable:hover,
+.user-row-clickable:hover {
   background: var(--surface-hover);
 }
 .cell-actions {
@@ -1252,6 +1256,18 @@ body {
 }
 
 .form-row .label { margin-bottom: 0.35rem; }
+
+.user-detail-heading {
+  margin: 0;
+}
+
+.user-detail-card {
+  max-width: 560px;
+}
+
+.table-log-detail-card {
+  max-width: 680px;
+}
 
 .hint {
   margin: 0 0 1rem;

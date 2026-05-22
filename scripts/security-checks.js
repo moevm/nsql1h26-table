@@ -157,6 +157,14 @@ async function main() {
   const usersPage = (await admin.request('/api/list?type=users&page=1&limit=10&q=admin', { expectStatus: 200 })).json;
   assert.ok(usersPage.items.some(user => user.login === 'admin'), 'users page endpoint must support user search');
 
+  await analyst.request('/api/users/editor', { method: 'PATCH', body: { role: 'administrator' }, expectStatus: 403 });
+  const editedUser = (await admin.request('/api/users/editor', { method: 'PATCH', body: { role: 'user' }, expectStatus: 200 })).json.user;
+  assert.equal(editedUser.role, 'user', 'administrator must be able to edit user role');
+  assert.ok(editedUser.updatedAt, 'user update must set updatedAt');
+  const updatedFrom = encodeURIComponent(new Date(new Date(editedUser.updatedAt).getTime() - 1000).toISOString());
+  const usersByUpdated = (await admin.request('/api/list?type=users&page=1&limit=10&updatedFrom=' + updatedFrom, { expectStatus: 200 })).json;
+  assert.ok(usersByUpdated.items.some(user => user.login === 'editor'), 'users page endpoint must filter by updated datetime');
+
   const formLogsPage = (await editor.request('/api/list?type=formLogs&page=1&limit=10&answers=%D0%BF%D0%BE%D0%B7%D0%B8%D1%86', { expectStatus: 200 })).json;
   assert.ok(Array.isArray(formLogsPage.items), 'form log list endpoint must accept answer filters');
 

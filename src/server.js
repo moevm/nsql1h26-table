@@ -35,6 +35,7 @@ const MAX_OPTION_LENGTH = 500;
 const MAX_ANSWER_FIELDS = 200;
 const MAX_ANSWER_VALUES = 100;
 const ALLOWED_FIELD_TYPES = new Set(['text', 'textarea', 'number', 'email', 'date', 'radio', 'checkbox', 'select', 'scale']);
+const ALLOWED_USER_ROLES = new Set(['administrator', 'analyst', 'editor', 'user']);
 
 const CSP = [
   "default-src 'self'",
@@ -155,17 +156,20 @@ function publicUser(user) {
   return {
     login: normalizeLogin(user?.login),
     role: user?.role || 'user',
-    createdAt: user?.createdAt || ''
+    createdAt: user?.createdAt || '',
+    updatedAt: user?.updatedAt || user?.createdAt || ''
   };
 }
 
 function sanitizeUserForStorage(user) {
   const login = normalizeLogin(user?.login);
   if (!LOGIN_RE.test(login)) return null;
+  const createdAt = user?.createdAt || new Date().toISOString();
   const clean = {
     login,
-    role: String(user?.role || 'user').slice(0, 64),
-    createdAt: user?.createdAt || new Date().toISOString()
+    role: ALLOWED_USER_ROLES.has(String(user?.role || 'user')) ? String(user?.role || 'user') : 'user',
+    createdAt,
+    updatedAt: user?.updatedAt || createdAt
   };
   if (user?.passwordHash && user?.passwordSalt) {
     clean.passwordHash = String(user.passwordHash);
@@ -1085,6 +1089,48 @@ async function createStoredUser(login, password) {
   return user;
 }
 
+async function updateStoredUser(login, patch) {
+  const targetLogin = normalizeLogin(login);
+  const users = await allDocs(COLLECTIONS.users);
+  const index = users.findIndex(user => sameLogin(user.login, targetLogin));
+  if (index < 0) {
+    const err = new Error('Пользователь не найден');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const current = users[index];
+  const nextRole = normalizeLogin(patch?.role || current.role || 'user');
+  if (!ALLOWED_USER_ROLES.has(nextRole)) {
+    const err = new Error('Некорректная роль пользователя');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const adminCount = users.filter(user => user.role === 'administrator').length;
+  if (current.role === 'administrator' && nextRole !== 'administrator' && adminCount <= 1) {
+    const err = new Error('Нельзя убрать роль последнего администратора');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const updated = sanitizeUserForStorage({
+    ...current,
+    role: nextRole,
+    login: current.login,
+    createdAt: current.createdAt,
+    updatedAt: new Date().toISOString()
+  });
+  users[index] = updated;
+  await replaceCollection(COLLECTIONS.users, 'users', users);
+
+  for (const session of sessions.values()) {
+    if (sameLogin(session.user?.login, updated.login)) session.user = publicUser(updated);
+  }
+
+  return publicUser(updated);
+}
+
 function filterStateForUser(state, userLogin) {
   const legacyState = dataModelToLegacyState(state);
   const user = normalizeLogin(userLogin);
@@ -1232,17 +1278,18 @@ function filterList(type, state, searchParams) {
 
   if (type === 'users') {
     return (state.users || []).filter(item => {
-      if (q && ![item.login, item.role, item.createdAt].some(value => textIncludes(value, q))) return false;
+      if (q && ![item.login, item.role, item.createdAt, item.updatedAt].some(value => textIncludes(value, q))) return false;
       if (!textIncludes(item.login, get('login'))) return false;
       if (!textIncludes(item.role, get('role'))) return false;
       if (!dateInRange(item.createdAt, from('created'), to('created'))) return false;
+      if (!dateInRange(item.updatedAt, from('updated'), to('updated'))) return false;
       return true;
     }).sort((a, b) => String(a.login || '').localeCompare(String(b.login || ''), 'ru'));
   }
 
   if (type === 'tableLogs') {
     return (state.tableLogs || []).filter(item => {
-      if (q && ![item.tableName, item.action, item.user, item.owner, item.cell, item.value, item.details, item.date].some(value => textIncludes(value, q))) return false;
+      if (q && ![item.tableName, item.action, item.user, item.owner, item.cell, item.value, item.details, item.createdAt, item.updatedAt, item.viewedAt, item.date].some(value => textIncludes(value, q))) return false;
       if (!textIncludes(item.tableName, get('tableName'))) return false;
       if (!textIncludes(item.action, get('action'))) return false;
       if (!textIncludes(item.user, get('user'))) return false;
@@ -1454,6 +1501,8 @@ function clientError(err, fallback = 'Bad request') {
 function staticFilePath(pathname) {
   const normalized = path.posix.normalize(pathname || '/');
   if (/^\/(?:tables|forms)(?:\/[a-zA-Z0-9_.:@-]+)?$/.test(normalized)) return STATIC_FILES.get('/index.html');
+  if (/^\/users(?:\/[a-zA-Z0-9_.@-]+)?$/.test(normalized)) return STATIC_FILES.get('/index.html');
+  if (/^\/table-actions(?:\/[a-zA-Z0-9_.:@-]+)?$/.test(normalized)) return STATIC_FILES.get('/index.html');
   if (['/table-actions', '/form-actions', '/tables-log', '/forms-log', '/users', '/import', '/export', '/statistics'].includes(normalized)) return STATIC_FILES.get('/index.html');
   return STATIC_FILES.get(normalized) || null;
 }
@@ -1622,6 +1671,26 @@ async function handleApi(req, res, pathname) {
     } catch (err) {
       const status = err.statusCode || 400;
       if (status >= 500) console.error('List read failed:', err);
+      sendJson(res, status, { error: clientError(err) });
+    }
+    return;
+  }
+
+  const userApiMatch = pathname.match(/^\/api\/users\/([^/]+)$/);
+  if (req.method === 'PATCH' && userApiMatch) {
+    const session = requireSession(req, res);
+    if (!session || !requireCsrf(req, res, session)) return;
+    if (session.user.role !== 'administrator') {
+      sendJson(res, 403, { error: 'Administrator role required' });
+      return;
+    }
+    try {
+      const body = await readJsonBody(req);
+      const user = await updateStoredUser(decodeURIComponent(userApiMatch[1]), body || {});
+      sendJson(res, 200, { user });
+    } catch (err) {
+      const status = err.statusCode || 400;
+      if (status >= 500) console.error('User update failed:', err);
       sendJson(res, status, { error: clientError(err) });
     }
     return;
