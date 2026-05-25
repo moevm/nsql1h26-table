@@ -2,11 +2,13 @@ const fs = require('fs/promises');
 const crypto = require('crypto');
 const http = require('http');
 const path = require('path');
+const packageJson = require('../package.json');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
 const DATA_DIR = path.join(ROOT_DIR, 'data');
 const PORT = Number(process.env.APP_PORT || 8080);
+const APP_VERSION = packageJson.version || '0.0.0';
 const ARANGO_URL = (process.env.ARANGO_URL || 'http://127.0.0.1:8529').replace(/\/$/, '');
 const ARANGO_DB = process.env.ARANGO_DB || 'tables_forms_app';
 const ARANGO_USER = process.env.ARANGO_USER || 'root';
@@ -1561,11 +1563,16 @@ async function handleApi(req, res, pathname) {
   if (req.method === 'GET' && pathname === '/api/health') {
     try {
       await ensureDbReady();
-      sendJson(res, 200, { ok: true, db: ARANGO_DB });
+      sendJson(res, 200, { ok: true, db: ARANGO_DB, version: APP_VERSION });
     } catch (err) {
       console.error('Health check failed:', err);
-      sendJson(res, 503, { ok: false, error: 'Database is not available' });
+      sendJson(res, 503, { ok: false, error: 'Database is not available', version: APP_VERSION });
     }
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/api/version') {
+    sendJson(res, 200, { version: APP_VERSION });
     return;
   }
 
