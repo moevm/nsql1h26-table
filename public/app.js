@@ -323,6 +323,11 @@
     if (opened) opened.opener = null;
   }
 
+  function openFormInNewTab(id) {
+    const opened = window.open('/forms/' + encodeURIComponent(id), '_blank', 'noopener');
+    if (opened) opened.opener = null;
+  }
+
   function currentUserLogin() {
     return localStorage.getItem(STORAGE_KEYS.user) || '';
   }
@@ -909,7 +914,7 @@
     if (!tbody) return;
     tbody.innerHTML = list.map(f => `
       <tr class="form-row-clickable" data-form-id="${escapeHtml(f.id)}">
-        <td><a href="/forms/${encodeURIComponent(f.id)}" class="form-open-link" data-id="${escapeHtml(f.id)}">${escapeHtml(f.name)}</a></td>
+        <td><a href="/forms/${encodeURIComponent(f.id)}" target="_blank" rel="noopener" class="form-open-link" data-id="${escapeHtml(f.id)}">${escapeHtml(f.name)}</a></td>
         <td>${escapeHtml(formatDateTime(f.createdAt))}</td>
         <td>${escapeHtml(formatDateTime(f.updatedAt))}</td>
         <td>${escapeHtml(formatDateTime(f.lastViewedAt))}</td>
@@ -921,15 +926,13 @@
     renderPagination('forms', pageData.total || 0, pageData.page || 1, pageData.limit || LIST_PAGE_SIZE, renderFormsList);
     tbody.querySelectorAll('.form-open-link').forEach(link => {
       link.addEventListener('click', function (e) {
-        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
-        e.preventDefault();
-        navigateToForm(this.dataset.id);
+        e.stopPropagation();
       });
     });
     tbody.querySelectorAll('.form-row-clickable').forEach(tr => {
       tr.addEventListener('click', function (e) {
         if (e.target.closest('.delete-form') || e.target.closest('a')) return;
-        navigateToForm(this.dataset.formId);
+        openFormInNewTab(this.dataset.formId);
       });
     });
     tbody.querySelectorAll('.delete-form').forEach(btn => {
@@ -1878,7 +1881,8 @@
     $('#new-form-name').value = '';
     $('#new-form-desc').value = '';
     renderFormBuilderFields();
-    navigateToForm(id);
+    openFormInNewTab(id);
+    navigateToScreen('forms');
   });
 
   // ---------- Импорт ----------
