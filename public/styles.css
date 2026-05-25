@@ -745,6 +745,39 @@ body {
   font-size: 1rem;
 }
 
+.save-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.save-status-saving {
+  color: var(--primary);
+  border-color: rgba(37, 99, 235, 0.35);
+}
+
+.save-status-saved {
+  color: var(--success-strong);
+  background: var(--success-soft);
+}
+
+.save-status-error {
+  color: var(--error-strong);
+  background: var(--error-soft);
+}
+
+.save-status-local {
+  color: var(--text-muted);
+}
+
 .sidebar {
   grid-area: sidebar;
   width: 240px;

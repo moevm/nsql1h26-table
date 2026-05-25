@@ -85,6 +85,12 @@ const initialForms = [
 let apiAvailable = true;
 let persistQueue = Promise.resolve();
 
+function notifySaveStatus(status, message) {
+  window.dispatchEvent(new CustomEvent('app:save-status', {
+    detail: { status, message }
+  }));
+}
+
 function readJson(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
@@ -216,14 +222,23 @@ async function logoutSession() {
 }
 
 function persistState(partial) {
-  if (!apiAvailable) return persistQueue;
+  if (!apiAvailable) {
+    notifySaveStatus('local', 'Локальный кэш');
+    return persistQueue;
+  }
+  notifySaveStatus('saving', 'Сохранение...');
   persistQueue = persistQueue
     .then(() => fetchJson('/api/state', {
       method: 'PUT',
       body: JSON.stringify(partial)
     }))
+    .then(result => {
+      notifySaveStatus('saved', 'Сохранено');
+      return result;
+    })
     .catch(err => {
       apiAvailable = false;
+      notifySaveStatus('error', 'Ошибка сохранения');
       console.warn('Не удалось сохранить данные в API, используется локальный кэш:', err.message);
     });
   return persistQueue;

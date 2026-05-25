@@ -45,6 +45,7 @@
   let sheetColumnFilters = {};
   let activeSheetFilterCleanup = null;
   let appVersionCache = '';
+  let saveStatusTimer = null;
   const listPages = { tables: 1, forms: 1, 'tables-log': 1, 'forms-log': 1, users: 1 };
 
   const $ = (sel, el = document) => el.querySelector(sel);
@@ -157,6 +158,29 @@
     }
     versionEl.textContent = appVersionCache;
   }
+
+  function setSaveStatus(status, message) {
+    const el = $('#save-status');
+    if (!el) return;
+    if (saveStatusTimer) {
+      clearTimeout(saveStatusTimer);
+      saveStatusTimer = null;
+    }
+    el.textContent = message || '';
+    el.className = 'save-status save-status-' + (status || 'idle');
+    el.classList.toggle('hidden', !message);
+    if (status === 'saved') {
+      saveStatusTimer = setTimeout(() => {
+        el.classList.add('hidden');
+        saveStatusTimer = null;
+      }, 2200);
+    }
+  }
+
+  window.addEventListener('app:save-status', event => {
+    const detail = event.detail || {};
+    setSaveStatus(detail.status, detail.message);
+  });
 
   function showLogin() {
     $('#screen-login').classList.remove('hidden');
