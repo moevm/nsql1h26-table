@@ -94,6 +94,8 @@ async function main() {
   }
 
   await admin.putState({ tables: [] }, 403, false);
+  await admin.putState({ tables: [], unexpected: [] }, 400);
+  await admin.putState([], 400);
   await analyst.putState({ users: [{ login: 'analyst', role: 'administrator', isAdmin: true }] }, 403);
 
   const adminInitial = await admin.state();

@@ -76,6 +76,8 @@ const COLLECTIONS = {
 
 const COLLECTION_ORDER = ['users', 'spreadsheets', 'tableRows', 'forms', 'formResponses', 'activityLog', 'userAssets', 'formTargets'];
 const CLIENT_STATE_KEYS = ['users', 'tables', 'forms', 'responses', 'tableLogs', 'formLogs'];
+const CLIENT_STATE_KEY_SET = new Set(CLIENT_STATE_KEYS);
+const MAX_STATE_PAYLOAD_KEYS = CLIENT_STATE_KEYS.length;
 const EDGE_COLLECTION_KEYS = new Set(['userAssets', 'formTargets']);
 let dbReadyPromise;
 
@@ -1500,6 +1502,28 @@ function clientError(err, fallback = 'Bad request') {
   return err?.message || fallback;
 }
 
+function validateStatePayload(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    const err = new Error('State payload must be an object');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const keys = Object.keys(payload);
+  if (keys.length > MAX_STATE_PAYLOAD_KEYS) {
+    const err = new Error('State payload has too many top-level keys');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const unknownKeys = keys.filter(key => !CLIENT_STATE_KEY_SET.has(key));
+  if (unknownKeys.length) {
+    const err = new Error('Unknown state payload keys: ' + unknownKeys.slice(0, 5).join(', '));
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
 function staticFilePath(pathname) {
   const normalized = path.posix.normalize(pathname || '/');
   if (/^\/(?:tables|forms)(?:\/[a-zA-Z0-9_.:@-]+)?$/.test(normalized)) return STATIC_FILES.get('/index.html');
@@ -1708,6 +1732,7 @@ async function handleApi(req, res, pathname) {
     if (!session || !requireCsrf(req, res, session)) return;
     try {
       const body = await readJsonBody(req);
+      validateStatePayload(body);
       sendJson(res, 200, await updateState(body || {}, session.user.login));
     } catch (err) {
       const status = err.statusCode || 400;
