@@ -13,7 +13,8 @@
     'table-log-view': 'Действие в таблице',
     'forms-log': 'Действия в формах',
     users: 'Пользователи',
-    'user-view': 'Пользователь'
+    'user-view': 'Пользователь',
+    about: 'О приложении'
   };
 
   const ROUTES = {
@@ -27,7 +28,8 @@
     '/users': { screen: 'users' },
     '/import': { screen: 'import' },
     '/export': { screen: 'export' },
-    '/statistics': { screen: 'statistics' }
+    '/statistics': { screen: 'statistics' },
+    '/about': { screen: 'about' }
   };
 
   const SHEET_ROWS = 40;
@@ -42,6 +44,7 @@
   let sheetFiltersVisible = true;
   let sheetColumnFilters = {};
   let activeSheetFilterCleanup = null;
+  let appVersionCache = '';
   const listPages = { tables: 1, forms: 1, 'tables-log': 1, 'forms-log': 1, users: 1 };
 
   const $ = (sel, el = document) => el.querySelector(sel);
@@ -54,6 +57,7 @@
     if (screenId === 'import') return '/import';
     if (screenId === 'export') return '/export';
     if (screenId === 'statistics') return '/statistics';
+    if (screenId === 'about') return '/about';
     if (screenId === 'forms') return '/forms';
     return '/tables';
   }
@@ -134,6 +138,24 @@
     if (screenId === 'tables-log') renderTablesLog();
     if (screenId === 'forms-log') renderFormsLog();
     if (screenId === 'users') renderUsersList();
+    if (screenId === 'about') renderAbout();
+  }
+
+  async function renderAbout() {
+    const versionEl = $('#about-version');
+    if (!versionEl) return;
+    if (appVersionCache) {
+      versionEl.textContent = appVersionCache;
+      return;
+    }
+    try {
+      const response = await fetch('/api/version', { credentials: 'same-origin' });
+      const data = await response.json();
+      appVersionCache = data.version || 'недоступна';
+    } catch {
+      appVersionCache = 'недоступна';
+    }
+    versionEl.textContent = appVersionCache;
   }
 
   function showLogin() {

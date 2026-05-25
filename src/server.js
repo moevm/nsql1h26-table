@@ -8,7 +8,7 @@ const ROOT_DIR = path.resolve(__dirname, '..');
 const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
 const DATA_DIR = path.join(ROOT_DIR, 'data');
 const PORT = Number(process.env.APP_PORT || 8080);
-const APP_VERSION = packageJson.version || '0.0.0';
+const APP_VERSION = String(packageJson.version || '0.0.0').replace(/\.0$/, '');
 const ARANGO_URL = (process.env.ARANGO_URL || 'http://127.0.0.1:8529').replace(/\/$/, '');
 const ARANGO_DB = process.env.ARANGO_DB || 'tables_forms_app';
 const ARANGO_USER = process.env.ARANGO_USER || 'root';
@@ -1529,7 +1529,7 @@ function staticFilePath(pathname) {
   if (/^\/(?:tables|forms)(?:\/[a-zA-Z0-9_.:@-]+)?$/.test(normalized)) return STATIC_FILES.get('/index.html');
   if (/^\/users(?:\/[a-zA-Z0-9_.@-]+)?$/.test(normalized)) return STATIC_FILES.get('/index.html');
   if (/^\/table-actions(?:\/[a-zA-Z0-9_.:@-]+)?$/.test(normalized)) return STATIC_FILES.get('/index.html');
-  if (['/table-actions', '/form-actions', '/tables-log', '/forms-log', '/users', '/import', '/export', '/statistics'].includes(normalized)) return STATIC_FILES.get('/index.html');
+  if (['/table-actions', '/form-actions', '/tables-log', '/forms-log', '/users', '/import', '/export', '/statistics', '/about'].includes(normalized)) return STATIC_FILES.get('/index.html');
   return STATIC_FILES.get(normalized) || null;
 }
 

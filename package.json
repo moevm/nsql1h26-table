@@ -1,6 +1,6 @@
 {
   "name": "tables-forms-arangodb-prototype",
-  "version": "0.8.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Prototype for storing, presenting, and analyzing tables and forms with ArangoDB.",
   "main": "src/server.js",

@@ -1492,6 +1492,51 @@ body {
   height: auto;
 }
 
+/* ---------- О приложении ---------- */
+.about-layout {
+  max-width: 520px;
+}
+
+.about-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  box-shadow: var(--shadow);
+}
+
+.about-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.2rem;
+}
+
+.about-text {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.about-version-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.about-version-label {
+  color: var(--text-muted);
+}
+
+.about-version-value {
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  font-weight: 700;
+}
+
 /* ---------- Адаптив ---------- */
 @media (max-width: 768px) {
   .app {
