@@ -8,6 +8,7 @@
     "start": "node src/server.js",
     "dev": "node src/server.js",
     "check:js": "node --check src/server.js && node --check public/app.js && node --check public/data.js && node --check public/spreadsheet.js",
+    "check": "npm run check:js && git diff --check",
     "security:check": "node scripts/security-checks.js",
     "test": "npm run security:check"
   },
