@@ -122,6 +122,12 @@
     openTableLogView(id);
   }
 
+  function navigateToFormLog(id) {
+    const path = '/form-actions/' + encodeURIComponent(id);
+    if (window.location.pathname !== path) history.pushState({ screen: 'form-log-view', id }, '', path);
+    openFormLogView(id);
+  }
+
   function showScreen(screenId) {
     currentScreen = screenId;
     $$('.screen-content').forEach(el => el.classList.add('hidden'));
@@ -446,6 +452,15 @@
 
   function findAccessibleTableLog(id) {
     return accessibleTableLogs().find(log => String(log.id || '') === String(id || ''));
+  }
+
+  function accessibleFormLogs() {
+    const formIds = accessibleFormIds();
+    return loadFormLogs().filter(log => !log.formId || formIds.has(log.formId) || sameLogin(log.user, currentUserLogin()));
+  }
+
+  function findAccessibleFormLog(id) {
+    return accessibleFormLogs().find(log => String(log.id || '') === String(id || ''));
   }
 
   function accessDenied(resourceType) {
@@ -2254,11 +2269,39 @@
     navigateToScreen('tables-log');
   });
 
+  function openFormLogView(id) {
+    const log = findAccessibleFormLog(id);
+    if (!log) {
+      alert('Действие недоступно или не найдено.');
+      navigateToScreen('forms-log');
+      return;
+    }
+    showScreen('form-log-view');
+    const statusLabel = log.status === 'published' ? 'Опубликована' : log.status === 'draft' ? 'Черновик' : (log.status || '—');
+    $('#view-form-log-title').textContent = log.action || 'Действие в форме';
+    $('#form-log-meta').textContent = 'Дата действия: ' + formatDateTime(log.date);
+    $('#view-form-log-form').value = log.formName || '—';
+    $('#view-form-log-action').value = log.action || '—';
+    $('#view-form-log-user').value = log.user || '—';
+    $('#view-form-log-owner').value = log.owner || '—';
+    $('#view-form-log-status').value = statusLabel;
+    $('#view-form-log-fields').value = log.fieldsCount !== undefined ? String(log.fieldsCount) : '—';
+    $('#view-form-log-answers').value = log.answers || log.details || '—';
+    $('#view-form-log-created').value = formatDateTime(log.createdAt);
+    $('#view-form-log-updated').value = formatDateTime(log.updatedAt);
+    $('#view-form-log-date').value = formatDateTime(log.date);
+  }
+
+  $('#back-from-form-log')?.addEventListener('click', function () {
+    navigateToScreen('forms-log');
+  });
+
   async function renderFormsLog() {
     const tbody = $('#tbody-forms-log');
     if (!tbody) return;
     const formIds = accessibleFormIds();
     let rows = loadFormLogs().filter(l => !l.formId || formIds.has(l.formId) || sameLogin(l.user, currentUserLogin())).map(l => ({
+      id: l.id || '',
       formId: l.formId || '',
       formName: l.formName || '',
       owner: l.owner || '',
@@ -2308,8 +2351,9 @@
     tbody.innerHTML = rows.length
       ? rows.map(r => {
           const statusLabel = r.status === 'published' ? 'Опубликована' : r.status === 'draft' ? 'Черновик' : escapeHtml(r.status || '—');
-          return '<tr>' +
-            '<td>' + escapeHtml(r.formName) + '</td>' +
+          const logId = escapeHtml(r.id || '');
+          return '<tr class="form-log-row-clickable" data-log-id="' + logId + '">' +
+            '<td><a href="/form-actions/' + encodeURIComponent(r.id || '') + '" class="form-log-open-link" data-log-id="' + logId + '">' + escapeHtml(r.formName || '—') + '</a></td>' +
             '<td>' + escapeHtml(r.action) + '</td>' +
             '<td>' + escapeHtml(r.user) + '</td>' +
             '<td>' + escapeHtml(r.owner) + '</td>' +
@@ -2321,6 +2365,19 @@
         }).join('')
       : '<tr><td colspan="8">Действий нет</td></tr>';
     renderPagination('forms-log', pageData.total || 0, pageData.page || 1, pageData.limit || LIST_PAGE_SIZE, renderFormsLog);
+    tbody.querySelectorAll('.form-log-open-link').forEach(link => {
+      link.addEventListener('click', function (e) {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+        e.preventDefault();
+        navigateToFormLog(this.dataset.logId);
+      });
+    });
+    tbody.querySelectorAll('.form-log-row-clickable').forEach(tr => {
+      tr.addEventListener('click', function (e) {
+        if (e.target.closest('a')) return;
+        navigateToFormLog(this.dataset.logId);
+      });
+    });
   }
 
   // ---------- Статистика (метаданные и строки выбранной таблицы) ----------
