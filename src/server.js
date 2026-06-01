@@ -1529,6 +1529,7 @@ function staticFilePath(pathname) {
   if (/^\/(?:tables|forms)(?:\/[a-zA-Z0-9_.:@-]+)?$/.test(normalized)) return STATIC_FILES.get('/index.html');
   if (/^\/users(?:\/[a-zA-Z0-9_.@-]+)?$/.test(normalized)) return STATIC_FILES.get('/index.html');
   if (/^\/table-actions(?:\/[a-zA-Z0-9_.:@-]+)?$/.test(normalized)) return STATIC_FILES.get('/index.html');
+  if (/^\/form-actions(?:\/[a-zA-Z0-9_.:@-]+)?$/.test(normalized)) return STATIC_FILES.get('/index.html');
   if (['/table-actions', '/form-actions', '/tables-log', '/forms-log', '/users', '/import', '/export', '/statistics', '/about'].includes(normalized)) return STATIC_FILES.get('/index.html');
   return STATIC_FILES.get(normalized) || null;
 }

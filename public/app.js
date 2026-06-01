@@ -12,6 +12,7 @@
     'tables-log': 'Действия в таблицах',
     'table-log-view': 'Действие в таблице',
     'forms-log': 'Действия в формах',
+    'form-log-view': 'Действие в форме',
     users: 'Пользователи',
     'user-view': 'Пользователь',
     about: 'О приложении'
@@ -77,6 +78,9 @@
     if (/^\/table-actions\/([^/]+)$/.test(path)) {
       return { screen: 'table-log-view', tableLogId: decodeURIComponent(path.split('/').pop()) };
     }
+    if (/^\/form-actions\/([^/]+)$/.test(path)) {
+      return { screen: 'form-log-view', formLogId: decodeURIComponent(path.split('/').pop()) };
+    }
     return ROUTES[path] || ROUTES['/'];
   }
 
@@ -126,7 +130,7 @@
     const title = TITLES[screenId] || screenId;
     const h = $('#header-title');
     if (h) h.textContent = title;
-    const activeNavScreen = screenId === 'user-view' ? 'users' : (screenId === 'table-log-view' ? 'tables-log' : screenId);
+    const activeNavScreen = screenId === 'user-view' ? 'users' : (screenId === 'table-log-view' ? 'tables-log' : (screenId === 'form-log-view' ? 'forms-log' : screenId));
     $$('.nav-link').forEach(link => {
       link.classList.toggle('active', link.dataset.screen === activeNavScreen);
     });
@@ -209,6 +213,8 @@
       openUserView(route.userLogin);
     } else if (route.tableLogId) {
       openTableLogView(route.tableLogId);
+    } else if (route.formLogId) {
+      openFormLogView(route.formLogId);
     } else {
       showScreen(route.screen || 'tables');
       if ((route.screen || 'tables') === 'tables') renderTablesList();
