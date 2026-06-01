@@ -2300,8 +2300,20 @@
     const pageData = await loadPagedList('forms-log', 'formLogs', () => rows);
     rows = pageData.items || [];
     tbody.innerHTML = rows.length
-      ? rows.map(r => '<tr><td>' + escapeHtml(r.formName) + '</td><td>' + escapeHtml(r.action) + '</td><td>' + escapeHtml(r.answers || r.details || '—') + '</td><td>' + escapeHtml(r.user) + '</td><td>' + escapeHtml(r.date ? new Date(r.date).toLocaleString('ru') : '') + '</td></tr>').join('')
-      : '<tr><td colspan="5">Действий нет</td></tr>';
+      ? rows.map(r => {
+          const statusLabel = r.status === 'published' ? 'Опубликована' : r.status === 'draft' ? 'Черновик' : escapeHtml(r.status || '—');
+          return '<tr>' +
+            '<td>' + escapeHtml(r.formName) + '</td>' +
+            '<td>' + escapeHtml(r.action) + '</td>' +
+            '<td>' + escapeHtml(r.user) + '</td>' +
+            '<td>' + escapeHtml(r.owner) + '</td>' +
+            '<td>' + statusLabel + '</td>' +
+            '<td>' + escapeHtml(String(r.fieldsCount !== undefined ? r.fieldsCount : '—')) + '</td>' +
+            '<td>' + escapeHtml(r.answers || r.details || '—') + '</td>' +
+            '<td>' + escapeHtml(r.date ? new Date(r.date).toLocaleString('ru') : '') + '</td>' +
+            '</tr>';
+        }).join('')
+      : '<tr><td colspan="8">Действий нет</td></tr>';
     renderPagination('forms-log', pageData.total || 0, pageData.page || 1, pageData.limit || LIST_PAGE_SIZE, renderFormsLog);
   }
 
