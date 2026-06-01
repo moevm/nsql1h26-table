@@ -36,7 +36,7 @@ const MAX_CELL_LENGTH = 5000;
 const MAX_OPTION_LENGTH = 500;
 const MAX_ANSWER_FIELDS = 200;
 const MAX_ANSWER_VALUES = 100;
-const ALLOWED_FIELD_TYPES = new Set(['text', 'textarea', 'number', 'email', 'date', 'radio', 'checkbox', 'select', 'scale']);
+const ALLOWED_FIELD_TYPES = new Set(['text', 'textarea', 'number', 'email', 'date', 'radio', 'checkbox', 'select', 'scale', 'page_break']);
 const ALLOWED_USER_ROLES = new Set(['administrator', 'analyst', 'editor', 'user']);
 
 const CSP = [
