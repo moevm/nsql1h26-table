@@ -41,6 +41,7 @@
   let currentScreen = 'tables';
   let currentTableId = null;
   let currentFormId = null;
+  let formPreviewPage = 0;
   let lastSearchScreen = 'tables';
   let sheetFiltersVisible = true;
   let sheetColumnFilters = {};
@@ -1658,6 +1659,7 @@
 
   function openFormView(id) {
     currentFormId = id;
+    formPreviewPage = 0;
     const f = loadForms().find(x => x.id === id);
     if (!f) return;
     if (!hasResourceAccess(f)) {
@@ -1753,12 +1755,22 @@
   function renderFormPreviewBlock(form) {
     const descEl = $('#form-description-preview');
     const fillEl = $('#view-form-fill');
+    const submitBtn = $('#form-submit-response');
+    const navEl = $('#form-page-nav');
     if (!fillEl) return;
     const f = form || loadForms().find(x => x.id === currentFormId);
     if (!f) return;
     if (descEl) descEl.textContent = f.description || '';
-    const fields = normalizeFormFields(f);
-    fillEl.innerHTML = fields.map((fld) => {
+
+    const pages = [[]];
+    normalizeFormFields(f).forEach(fld => {
+      if (fld.type === 'page_break') pages.push([]);
+      else pages[pages.length - 1].push(fld);
+    });
+    const pageCount = pages.length;
+    formPreviewPage = Math.min(Math.max(formPreviewPage, 0), pageCount - 1);
+
+    function fieldHtml(fld) {
       let input = '';
       if (fld.type === 'text') input = '<input type="text" class="input" data-field-id="' + escapeHtml(fld.id) + '">';
       else if (fld.type === 'textarea') input = '<textarea class="textarea" rows="2" data-field-id="' + escapeHtml(fld.id) + '"></textarea>';
@@ -1774,7 +1786,34 @@
         input = '<select class="input" data-field-id="' + escapeHtml(fld.id) + '"><option value="">—</option>' + Array.from({ length: max - min + 1 }, (_, k) => min + k).map(n => '<option value="' + n + '">' + n + '</option>').join('') + '</select>';
       } else input = '<input type="text" class="input" data-field-id="' + escapeHtml(fld.id) + '">';
       return '<div class="form-fill-field"><label class="label">' + escapeHtml(fld.label) + (fld.required ? ' *' : '') + '</label>' + input + '</div>';
-    }).join('');
+    }
+
+    fillEl.innerHTML = pages.map((pageFields, pi) =>
+      '<div class="form-page"' + (pi !== formPreviewPage ? ' style="display:none"' : '') + ' data-page="' + pi + '">' +
+      pageFields.map(fieldHtml).join('') +
+      '</div>'
+    ).join('');
+
+    if (navEl) {
+      if (pageCount > 1) {
+        navEl.classList.remove('hidden');
+        navEl.innerHTML =
+          '<button type="button" class="btn btn-ghost btn-sm" id="form-page-prev"' + (formPreviewPage === 0 ? ' disabled' : '') + '>← Назад</button>' +
+          '<span class="form-page-counter">Страница ' + (formPreviewPage + 1) + ' из ' + pageCount + '</span>' +
+          '<button type="button" class="btn btn-ghost btn-sm" id="form-page-next"' + (formPreviewPage === pageCount - 1 ? ' disabled' : '') + '>Далее →</button>';
+        $('#form-page-prev')?.addEventListener('click', function () {
+          if (formPreviewPage > 0) { formPreviewPage--; renderFormPreviewBlock(f); }
+        });
+        $('#form-page-next')?.addEventListener('click', function () {
+          if (formPreviewPage < pageCount - 1) { formPreviewPage++; renderFormPreviewBlock(f); }
+        });
+      } else {
+        navEl.classList.add('hidden');
+        navEl.innerHTML = '';
+      }
+    }
+
+    if (submitBtn) submitBtn.classList.toggle('hidden', pageCount > 1 && formPreviewPage < pageCount - 1);
   }
 
   function renderFormResponsesBlock(form) {
@@ -1802,6 +1841,7 @@
       $('#form-edit-block').classList.toggle('hidden', tab !== 'edit');
       $('#form-preview-block').classList.toggle('hidden', tab !== 'preview');
       $('#form-responses-block').classList.toggle('hidden', tab !== 'responses');
+      if (tab === 'preview') { formPreviewPage = 0; renderFormPreviewBlock(); }
       if (tab === 'responses') renderFormResponsesBlock();
     });
   });

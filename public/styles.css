@@ -597,6 +597,8 @@ body {
 .form-field-item .label-inline { white-space: nowrap; }
 .form-field-page-break { justify-content: space-between; border-style: dashed; background: var(--surface); }
 .page-break-divider { flex: 1; text-align: center; color: var(--text-muted); font-size: 0.9rem; letter-spacing: 0.05em; }
+.form-page-nav { display: flex; align-items: center; gap: 0.75rem; margin: 0.75rem 0 0.25rem; }
+.form-page-counter { flex: 1; text-align: center; font-size: 0.9rem; color: var(--text-muted); }
 
 /* ---------- Приложение ---------- */
 .app {
