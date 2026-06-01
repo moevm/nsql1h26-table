@@ -1820,7 +1820,7 @@
     const f = form || loadForms().find(x => x.id === currentFormId);
     if (!f) return;
     const responses = loadFormResponses().filter(r => r.formId === f.id && (isResourceOwner(f) || sameLogin(r.user, currentUserLogin())));
-    const fields = normalizeFormFields(f);
+    const fields = normalizeFormFields(f).filter(fld => fld.type !== 'page_break');
     const thead = $('#form-responses-thead');
     const tbody = $('#form-responses-tbody');
     if (!thead || !tbody) return;
@@ -1853,7 +1853,7 @@
       accessDenied('form');
       return;
     }
-    const fields = normalizeFormFields(form);
+    const fields = normalizeFormFields(form).filter(fld => fld.type !== 'page_break');
     const answers = {};
     const fillRoot = $('#view-form-fill');
     fields.forEach(fld => {

@@ -399,7 +399,7 @@ function addFormHistory(formId, entry) {
     formName: f?.name || entry.formName || '',
     owner: f?.owner || '',
     status: f?.status || '',
-    fieldsCount: f?.fields ? f.fields.length : 0,
+    fieldsCount: f?.fields ? f.fields.filter(x => x.type !== 'page_break').length : 0,
     createdAt: f?.createdAt || '',
     updatedAt: now.toISOString(),
     date: now.toISOString(),
