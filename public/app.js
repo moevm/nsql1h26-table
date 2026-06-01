@@ -1692,13 +1692,16 @@
 
   const FORM_FIELD_TYPES_ARR = typeof FORM_FIELD_TYPES !== 'undefined' ? FORM_FIELD_TYPES : [
     { value: 'text', label: 'Краткий ответ' }, { value: 'textarea', label: 'Длинный текст' }, { value: 'number', label: 'Число' }, { value: 'email', label: 'Email' }, { value: 'date', label: 'Дата' },
-    { value: 'radio', label: 'Один из списка' }, { value: 'checkbox', label: 'Несколько' }, { value: 'select', label: 'Список' }, { value: 'scale', label: 'Шкала' }
+    { value: 'radio', label: 'Один из списка' }, { value: 'checkbox', label: 'Несколько' }, { value: 'select', label: 'Список' }, { value: 'scale', label: 'Шкала' }, { value: 'page_break', label: 'Разрыв страницы' }
   ];
 
   function renderFormEditBlock(fields) {
     const container = $('#view-form-fields-edit');
     if (!container) return;
     container.innerHTML = fields.map((fld, i) => {
+      if (fld.type === 'page_break') {
+        return '<div class="form-field-item form-field-page-break" data-i="' + i + '"><span class="page-break-divider">— Разрыв страницы —</span><button type="button" class="btn btn-ghost btn-sm btn-remove-field" data-i="' + i + '">✕</button></div>';
+      }
       const typesOpts = FORM_FIELD_TYPES_ARR.map(t => '<option value="' + escapeHtml(t.value) + '"' + (t.value === fld.type ? ' selected' : '') + '>' + escapeHtml(t.label) + '</option>').join('');
       const opts = (fld.options || []).join(', ');
       const optRow = ['radio', 'checkbox', 'select'].includes(fld.type) ? '<input type="text" class="input field-options-input" data-i="' + i + '" placeholder="Варианты через запятую" value="' + escapeHtml(opts) + '">' : '';
@@ -1905,6 +1908,9 @@
     const container = $('#form-fields-list');
     if (!container) return;
     container.innerHTML = builderFields.map((fld, i) => {
+      if (fld.type === 'page_break') {
+        return '<div class="form-field-item form-field-page-break" data-i="' + i + '"><span class="page-break-divider">— Разрыв страницы —</span><button type="button" class="btn btn-ghost btn-sm btn-remove-field" data-i="' + i + '">✕</button></div>';
+      }
       const typesOpts = FORM_FIELD_TYPES_ARR.map(t => '<option value="' + escapeHtml(t.value) + '"' + (t.value === fld.type ? ' selected' : '') + '>' + escapeHtml(t.label) + '</option>').join('');
       const opts = (fld.options || []).join(', ');
       const optRow = ['radio', 'checkbox', 'select'].includes(fld.type) ? '<input type="text" class="input field-options-input" data-i="' + i + '" placeholder="Варианты через запятую" value="' + escapeHtml(opts) + '">' : '';

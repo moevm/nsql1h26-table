@@ -70,7 +70,8 @@ const FORM_FIELD_TYPES = [
   { value: 'radio', label: 'Один из списка' },
   { value: 'checkbox', label: 'Несколько из списка' },
   { value: 'select', label: 'Выпадающий список' },
-  { value: 'scale', label: 'Шкала (1-10)' }
+  { value: 'scale', label: 'Шкала (1-10)' },
+  { value: 'page_break', label: 'Разрыв страницы' }
 ];
 
 const initialForms = [
