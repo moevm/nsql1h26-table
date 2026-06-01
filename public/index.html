@@ -359,6 +359,57 @@
         </div>
       </section>
 
+      <!-- Просмотр действия в форме -->
+      <section id="screen-form-log-view" class="screen-content hidden">
+        <div class="detail-toolbar">
+          <button type="button" class="btn btn-ghost" id="back-from-form-log">← Назад</button>
+          <h2 class="page-heading user-detail-heading" id="view-form-log-title">Действие в форме</h2>
+          <span class="detail-meta" id="form-log-meta"></span>
+        </div>
+        <div class="form-card table-log-detail-card">
+          <div class="form-row">
+            <label class="label">Форма</label>
+            <input type="text" id="view-form-log-form" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Действие</label>
+            <input type="text" id="view-form-log-action" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Пользователь</label>
+            <input type="text" id="view-form-log-user" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Создатель формы</label>
+            <input type="text" id="view-form-log-owner" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Статус формы</label>
+            <input type="text" id="view-form-log-status" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Кол-во полей</label>
+            <input type="text" id="view-form-log-fields" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Ответы / детали</label>
+            <textarea id="view-form-log-answers" class="textarea" rows="3" readonly></textarea>
+          </div>
+          <div class="form-row">
+            <label class="label">Форма создана</label>
+            <input type="text" id="view-form-log-created" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Форма изменена</label>
+            <input type="text" id="view-form-log-updated" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Дата действия</label>
+            <input type="text" id="view-form-log-date" class="input" readonly>
+          </div>
+        </div>
+      </section>
+
       <!-- Журнал действий по формам -->
       <section id="screen-forms-log" class="screen-content hidden">
         <h2 class="page-heading">Действия в формах</h2>
