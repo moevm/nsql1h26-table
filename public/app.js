@@ -1739,6 +1739,17 @@
     renderFormPreviewBlock(form);
   });
 
+  $('#form-add-page-break-in-edit')?.addEventListener('click', function () {
+    const forms = loadForms();
+    const form = forms.find(x => x.id === currentFormId);
+    if (!form || !isResourceOwner(form)) return;
+    form.fields = normalizeFormFields(form);
+    form.fields.push({ id: form.id + '-pb' + Date.now(), type: 'page_break', label: '', required: false });
+    saveForms(forms);
+    renderFormEditBlock(form.fields);
+    renderFormPreviewBlock(form);
+  });
+
   function renderFormPreviewBlock(form) {
     const descEl = $('#form-description-preview');
     const fillEl = $('#view-form-fill');
@@ -1934,6 +1945,11 @@
 
   $('#add-form-field')?.addEventListener('click', function () {
     builderFields.push({ id: 'new-f' + builderFields.length, type: 'text', label: 'Вопрос ' + (builderFields.length + 1), required: false });
+    renderFormBuilderFields();
+  });
+
+  $('#add-form-page-break')?.addEventListener('click', function () {
+    builderFields.push({ id: 'new-pb' + builderFields.length, type: 'page_break', label: '', required: false });
     renderFormBuilderFields();
   });
 
