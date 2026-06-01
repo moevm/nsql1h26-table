@@ -363,12 +363,14 @@ body {
 
 .table-row-clickable,
 .table-log-row-clickable,
+.form-log-row-clickable,
 .form-row-clickable,
 .user-row-clickable {
   cursor: pointer;
 }
 .table-row-clickable:hover,
 .table-log-row-clickable:hover,
+.form-log-row-clickable:hover,
 .form-row-clickable:hover,
 .user-row-clickable:hover {
   background: var(--surface-hover);
