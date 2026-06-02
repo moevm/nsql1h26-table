@@ -301,13 +301,29 @@ async function ensurePersistentIndex(collectionName, fields, unique = false) {
 
 async function ensureIndexes() {
   await ensurePersistentIndex(COLLECTIONS.users, ['login'], true);
-  await ensurePersistentIndex(COLLECTIONS.tableRows, ['spreadsheetId', 'rowIndex'], true);
+  await dropObsoleteTableRowIndex();
+  await ensurePersistentIndex(COLLECTIONS.tableRows, ['spreadsheetId', 'sheetId', 'rowIndex'], true);
   await ensurePersistentIndex(COLLECTIONS.tableRows, ['spreadsheetId']);
+  await ensurePersistentIndex(COLLECTIONS.tableRows, ['spreadsheetId', 'sheetId']);
   await ensurePersistentIndex(COLLECTIONS.formResponses, ['formId', 'submittedAt']);
   await ensurePersistentIndex(COLLECTIONS.activityLog, ['entityType', 'entityId', 'createdAt']);
   await ensurePersistentIndex(COLLECTIONS.activityLog, ['userId', 'createdAt']);
   await ensurePersistentIndex(COLLECTIONS.userAssets, ['_from', '_to']);
   await ensurePersistentIndex(COLLECTIONS.formTargets, ['_from', '_to'], true);
+}
+
+async function dropObsoleteTableRowIndex() {
+  try {
+    const result = await arangoFetch(`/_api/index?collection=${encodeURIComponent(COLLECTIONS.tableRows)}`);
+    for (const index of result.indexes || []) {
+      const fields = Array.isArray(index.fields) ? index.fields.join(',') : '';
+      if (index.type === 'persistent' && index.unique && fields === 'spreadsheetId,rowIndex') {
+        await arangoFetch(`/_api/index/${index.id}`, { method: 'DELETE' });
+      }
+    }
+  } catch (err) {
+    if (err.status !== 404) throw err;
+  }
 }
 
 function stripArangoFields(doc) {
@@ -422,6 +438,36 @@ function cleanCells(cells) {
       .map(cell => cleanText(cell, MAX_CELL_LENGTH)));
 }
 
+function cleanSheetId(value, fallback) {
+  return cleanId(value || fallback, 'sheet');
+}
+
+function cleanTableSheets(table) {
+  const rawSheets = Array.isArray(table?.sheets) && table.sheets.length
+    ? table.sheets
+    : [{ id: table?.activeSheetId || 'sheet-1', name: 'Лист 1', cells: table?.cells || [] }];
+  const seen = new Set();
+  const sheets = [];
+  rawSheets.slice(0, 50).forEach((sheetRaw, index) => {
+    const fallback = `sheet-${index + 1}`;
+    let id = cleanSheetId(sheetRaw?.id, fallback);
+    let counter = 2;
+    while (seen.has(id)) {
+      id = cleanSheetId(`${fallback}-${counter}`, fallback);
+      counter += 1;
+    }
+    seen.add(id);
+    sheets.push({
+      id,
+      name: cleanText(sheetRaw?.name || `Лист ${index + 1}`, MAX_NAME_LENGTH) || `Лист ${index + 1}`,
+      cells: cleanCells(sheetRaw?.cells)
+    });
+  });
+  if (!sheets.length) sheets.push({ id: 'sheet-1', name: 'Лист 1', cells: cleanCells(table?.cells) });
+  const activeSheetId = sheets.some(sheet => sheet.id === table?.activeSheetId) ? table.activeSheetId : sheets[0].id;
+  return { sheets, activeSheetId };
+}
+
 function cleanSettings(settings) {
   const source = settings && typeof settings === 'object' ? settings : {};
   return {
@@ -434,7 +480,11 @@ function cleanTable(tableRaw, index, validLogins, now) {
   const table = normalizeAccessDoc(tableRaw);
   const ownerLogin = normalizeLogin(table.ownerLogin);
   if (!ownerLogin || !validLogins.has(ownerLogin.toLowerCase())) return null;
-  const cells = cleanCells(table.cells);
+  const sheetState = cleanTableSheets(table);
+  const activeSheet = sheetState.sheets.find(sheet => sheet.id === sheetState.activeSheetId) || sheetState.sheets[0];
+  const cells = cleanCells(activeSheet?.cells || table.cells);
+  const maxRows = Math.max(...sheetState.sheets.map(sheet => sheet.cells.length), cells.length, 0);
+  const maxCols = Math.max(...sheetState.sheets.flatMap(sheet => sheet.cells.map(row => row.length)), ...cells.map(row => row.length), 0);
   return normalizeAccessDoc({
     id: cleanId(docId(table) || `table-${index + 1}`, 'table'),
     name: cleanText(table.name, MAX_NAME_LENGTH),
@@ -446,8 +496,10 @@ function cleanTable(tableRaw, index, validLogins, now) {
     lastViewedAt: table.lastViewedAt ? cleanDate(table.lastViewedAt, null) : null,
     comment: cleanText(table.comment, MAX_TEXT_LENGTH),
     cells,
-    rowCount: cleanNumber(table.rowCount, 1, MAX_ROWS_PER_TABLE, Math.max(40, cells.length)),
-    colCount: cleanNumber(table.colCount, 1, MAX_COLS_PER_TABLE, Math.max(40, ...cells.map(row => row.length), 0)),
+    sheets: sheetState.sheets,
+    activeSheetId: sheetState.activeSheetId,
+    rowCount: cleanNumber(table.rowCount, 1, MAX_ROWS_PER_TABLE, Math.max(40, maxRows)),
+    colCount: cleanNumber(table.colCount, 1, MAX_COLS_PER_TABLE, Math.max(40, maxCols)),
     settings: cleanSettings(table.settings)
   });
 }
@@ -538,6 +590,8 @@ function cleanActivityLog(logRaw, index, type, validIds, validLogins, now) {
         createdAt: cleanDate(logRaw?.createdAt || logRaw?.diff?.createdAt, ''),
         updatedAt: cleanDate(logRaw?.updatedAt || logRaw?.diff?.updatedAt, ''),
         viewedAt: cleanDate(logRaw?.viewedAt || logRaw?.diff?.viewedAt, ''),
+        sheetId: cleanText(logRaw?.sheetId || logRaw?.diff?.sheetId, 96),
+        sheetName: cleanText(logRaw?.sheetName || logRaw?.diff?.sheetName, MAX_NAME_LENGTH),
         cell: cleanText(logRaw?.cell || logRaw?.diff?.cell, 32),
         value: cleanText(logRaw?.value || logRaw?.diff?.value, MAX_TEXT_LENGTH),
         details: cleanText(logRaw?.details || logRaw?.diff?.details, MAX_TEXT_LENGTH)
@@ -631,24 +685,60 @@ function cellsFromTableRows(rows) {
   return cells.map(row => row || []);
 }
 
+function sheetsFromTableRows(table, rows) {
+  const groupedRows = new Map();
+  for (const row of rows || []) {
+    const sheetId = String(row.sheetId || 'sheet-1');
+    if (!groupedRows.has(sheetId)) groupedRows.set(sheetId, []);
+    groupedRows.get(sheetId).push(row);
+  }
+
+  const declaredSheets = Array.isArray(table?.sheets) && table.sheets.length
+    ? table.sheets
+    : Array.from(groupedRows.keys()).map((sheetId, index) => ({
+        id: sheetId,
+        name: sheetId === 'sheet-1' ? 'Лист 1' : `Лист ${index + 1}`
+      }));
+
+  const sheets = declaredSheets.map((sheet, index) => {
+    const sheetId = cleanSheetId(sheet?.id, `sheet-${index + 1}`);
+    const sheetRows = groupedRows.get(sheetId) || [];
+    const firstRow = sheetRows.find(row => row.sheetName);
+    return {
+      id: sheetId,
+      name: cleanText(sheet?.name || firstRow?.sheetName || `Лист ${index + 1}`, MAX_NAME_LENGTH) || `Лист ${index + 1}`,
+      cells: cellsFromTableRows(sheetRows)
+    };
+  });
+
+  if (!sheets.length) sheets.push({ id: 'sheet-1', name: 'Лист 1', cells: cellsFromTableRows(rows) });
+  return sheets;
+}
+
 function tableRowsFromCells(table, defaultCreatedAt, defaultUpdatedAt) {
   const rows = [];
-  const cells = Array.isArray(table?.cells) ? table.cells : [];
-  cells.forEach((row, index) => {
-    if (!Array.isArray(row)) return;
-    const values = {};
-    row.forEach((cell, colIndex) => {
-      const value = cell == null ? '' : String(cell);
-      if (value !== '') values[columnName(colIndex)] = value;
-    });
-    if (!Object.keys(values).length) return;
-    rows.push({
-      _key: `${docId(table)}_row_${index + 1}`,
-      spreadsheetId: docId(table),
-      rowIndex: index + 1,
-      values,
-      createdAt: table.createdAt || defaultCreatedAt,
-      updatedAt: table.updatedAt || defaultUpdatedAt
+  const sheetState = cleanTableSheets(table);
+  sheetState.sheets.forEach((sheet, sheetIndex) => {
+    const cells = Array.isArray(sheet?.cells) ? sheet.cells : [];
+    cells.forEach((row, index) => {
+      if (!Array.isArray(row)) return;
+      const values = {};
+      row.forEach((cell, colIndex) => {
+        const value = cell == null ? '' : String(cell);
+        if (value !== '') values[columnName(colIndex)] = value;
+      });
+      if (!Object.keys(values).length) return;
+      rows.push({
+        _key: `${docId(table)}_${sheet.id}_row_${index + 1}`.replace(/[^a-zA-Z0-9_:.@()+,=;$!*'%-]/g, '_').slice(0, 254),
+        spreadsheetId: docId(table),
+        sheetId: sheet.id,
+        sheetName: sheet.name,
+        sheetOrder: sheetIndex,
+        rowIndex: index + 1,
+        values,
+        createdAt: table.createdAt || defaultCreatedAt,
+        updatedAt: table.updatedAt || defaultUpdatedAt
+      });
     });
   });
   return rows;
@@ -667,6 +757,8 @@ function activityToTableLog(log, tablesById) {
     createdAt: log.diff?.createdAt || table?.createdAt || '',
     updatedAt: log.diff?.updatedAt || table?.updatedAt || '',
     viewedAt: log.diff?.viewedAt || table?.lastViewedAt || '',
+    sheetId: log.diff?.sheetId || '',
+    sheetName: log.diff?.sheetName || '',
     cell: log.diff?.cell || '',
     value: log.diff?.value || '',
     details: log.diff?.details || ''
@@ -704,6 +796,9 @@ function dataModelToLegacyState(state) {
   const tables = (state.spreadsheets || []).map(sheet => {
     const id = docId(sheet);
     const access = normalizeAssetAccess(userAssets, COLLECTIONS.spreadsheets, id, sheet.ownerId);
+    const sheets = sheetsFromTableRows(sheet, rowsBySpreadsheet.get(id) || []);
+    const activeSheetId = sheets.some(tab => tab.id === sheet.activeSheetId) ? sheet.activeSheetId : sheets[0]?.id;
+    const activeSheet = sheets.find(tab => tab.id === activeSheetId) || sheets[0];
     return normalizeAccessDoc({
       id,
       name: sheet.name || '',
@@ -714,7 +809,9 @@ function dataModelToLegacyState(state) {
       updatedAt: sheet.updatedAt || '',
       lastViewedAt: sheet.lastViewedAt || null,
       comment: sheet.comment || '',
-      cells: cellsFromTableRows(rowsBySpreadsheet.get(id) || []),
+      cells: activeSheet?.cells || [],
+      sheets,
+      activeSheetId,
       history: [],
       rowCount: sheet.rowCount,
       colCount: sheet.colCount,
@@ -800,13 +897,22 @@ function legacyStateToDataModelState(legacy, existingUsers = [], existingFormTar
     const createdAt = table.createdAt || now;
     const updatedAt = table.updatedAt || createdAt;
     const cells = table.cells;
-    const colCount = Math.max(40, ...cells.map(row => row.length), Number(table.colCount || 0));
+    const sheets = table.sheets || [{ id: table.activeSheetId || 'sheet-1', name: 'Лист 1', cells }];
+    const colCount = Math.max(40, ...sheets.flatMap(sheet => (sheet.cells || []).map(row => row.length)), Number(table.colCount || 0));
     spreadsheets.push({
       _key: id,
       name: table.name || '',
       ownerId: table.ownerLogin,
-      rowCount: Math.min(MAX_ROWS_PER_TABLE, Math.max(40, cells.length, Number(table.rowCount || 0))),
+      rowCount: Math.min(MAX_ROWS_PER_TABLE, Math.max(40, ...sheets.map(sheet => (sheet.cells || []).length), Number(table.rowCount || 0))),
       colCount,
+      sheets: sheets.map((sheet, sheetIndex) => ({
+        id: sheet.id,
+        name: sheet.name,
+        order: sheetIndex,
+        rowCount: Math.min(MAX_ROWS_PER_TABLE, Math.max(1, (sheet.cells || []).length)),
+        colCount: Math.min(MAX_COLS_PER_TABLE, Math.max(1, ...(sheet.cells || []).map(row => row.length), 0))
+      })),
+      activeSheetId: table.activeSheetId,
       createdAt,
       updatedAt,
       lastViewedAt: table.lastViewedAt || null,
@@ -1293,8 +1399,9 @@ function filterList(type, state, searchParams) {
 
   if (type === 'tableLogs') {
     return (state.tableLogs || []).filter(item => {
-      if (q && ![item.tableName, item.action, item.user, item.owner, item.cell, item.value, item.details, item.createdAt, item.updatedAt, item.viewedAt, item.date].some(value => textIncludes(value, q))) return false;
+      if (q && ![item.tableName, item.sheetName, item.action, item.user, item.owner, item.cell, item.value, item.details, item.createdAt, item.updatedAt, item.viewedAt, item.date].some(value => textIncludes(value, q))) return false;
       if (!textIncludes(item.tableName, get('tableName'))) return false;
+      if (!textIncludes(item.sheetName, get('sheetName'))) return false;
       if (!textIncludes(item.action, get('action'))) return false;
       if (!textIncludes(item.user, get('user'))) return false;
       if (!textIncludes(item.owner, get('owner'))) return false;
