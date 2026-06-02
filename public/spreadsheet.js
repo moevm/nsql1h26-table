@@ -16,7 +16,8 @@
     radio: 'Один из списка',
     checkbox: 'Несколько из списка',
     select: 'Выпадающий список',
-    scale: 'Шкала'
+    scale: 'Шкала',
+    page_break: 'Разрыв страницы'
   };
 
   function zipLib() {
@@ -231,6 +232,21 @@
     return trimRows(table?.cells || [['']]);
   }
 
+  function tableSheets(table) {
+    if (Array.isArray(table?.sheets) && table.sheets.length) {
+      return table.sheets.map((sheet, index) => ({
+        id: sheet.id || 'sheet-' + (index + 1),
+        name: sheet.name || 'Лист ' + (index + 1),
+        cells: trimRows(sheet.cells || [['']])
+      }));
+    }
+    return [{
+      id: table?.activeSheetId || 'sheet-1',
+      name: 'Лист 1',
+      cells: tableRows(table)
+    }];
+  }
+
   function formDefinitionRows(form) {
     const rows = [
       ['Название', form?.name || ''],
@@ -279,8 +295,15 @@
     const used = new Set();
     const map = new Map();
     (tables || []).forEach((table, index) => {
-      const name = sheetName(table.name, used, 'Таблица ' + (index + 1));
-      map.set(name, table);
+      const tabs = tableSheets(table);
+      tabs.forEach((tab, tabIndex) => {
+        const fallback = 'Таблица ' + (index + 1) + (tabs.length > 1 ? ' - Лист ' + (tabIndex + 1) : '');
+        const visibleName = tabs.length > 1
+          ? (table.name || fallback) + ' - ' + (tab.name || ('Лист ' + (tabIndex + 1)))
+          : (table.name || fallback);
+        const name = sheetName(visibleName, used, fallback);
+        map.set(name, { table, tabId: tab.id });
+      });
     });
     return map;
   }
@@ -293,10 +316,19 @@
     const responses = Array.isArray(data?.responses) ? data.responses : [];
 
     tables.forEach((table, index) => {
-      sheets.push({
-        kind: 'table',
-        name: sheetName(table.name, used, 'Таблица ' + (index + 1)),
-        rows: tableRows(table)
+      const tabs = tableSheets(table);
+      tabs.forEach((tab, tabIndex) => {
+        const fallback = 'Таблица ' + (index + 1) + (tabs.length > 1 ? ' - Лист ' + (tabIndex + 1) : '');
+        const visibleName = tabs.length > 1
+          ? (table.name || fallback) + ' - ' + (tab.name || ('Лист ' + (tabIndex + 1)))
+          : (table.name || fallback);
+        sheets.push({
+          kind: 'table',
+          tableId: table.id || '',
+          sheetId: tab.id,
+          name: sheetName(visibleName, used, fallback),
+          rows: tab.cells
+        });
       });
     });
 
@@ -642,6 +674,335 @@
     }));
   }
 
+  function parseExcelXmlSheets(text) {
+    const doc = parseXml(text);
+    const worksheets = byLocalName(doc, 'Worksheet');
+    if (!worksheets.length) return [];
+    return worksheets.map((worksheet, index) => {
+      const table = directChildrenByLocalName(worksheet, 'Table')[0] || byLocalName(worksheet, 'Table')[0];
+      const rows = [];
+      directChildrenByLocalName(table || worksheet, 'Row').forEach(rowNode => {
+        const row = [];
+        directChildrenByLocalName(rowNode, 'Cell').forEach(cell => {
+          const indexAttr = cell.getAttribute('ss:Index') || cell.getAttribute('Index');
+          if (indexAttr) {
+            while (row.length < Number(indexAttr) - 1) row.push('');
+          }
+          const dataNode = directChildrenByLocalName(cell, 'Data')[0];
+          row.push(dataNode ? dataNode.textContent || '' : cell.textContent || '');
+        });
+        rows.push(row);
+      });
+      return {
+        name: worksheet.getAttribute('ss:Name') || worksheet.getAttribute('Name') || 'Лист ' + (index + 1),
+        hidden: false,
+        rows
+      };
+    });
+  }
+
+  function parseHtmlTableSheets(text) {
+    const doc = new DOMParser().parseFromString(text, 'text/html');
+    return Array.from(doc.querySelectorAll('table')).map((table, index) => ({
+      name: table.getAttribute('name') || table.getAttribute('id') || 'Лист ' + (index + 1),
+      hidden: false,
+      rows: Array.from(table.querySelectorAll('tr')).map(row =>
+        Array.from(row.children).filter(cell => ['TD', 'TH'].includes(cell.tagName)).map(cell => cell.textContent || '')
+      )
+    }));
+  }
+
+  function dataView(bytes) {
+    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  }
+
+  function readUtf16(bytes, offset, byteLength) {
+    const end = Math.min(bytes.length, offset + byteLength);
+    let out = '';
+    for (let i = offset; i + 1 < end; i += 2) {
+      const code = bytes[i] | (bytes[i + 1] << 8);
+      if (code) out += String.fromCharCode(code);
+    }
+    return out;
+  }
+
+  function readAnsi(bytes, offset, length) {
+    let out = '';
+    for (let i = offset; i < Math.min(bytes.length, offset + length); i += 1) {
+      if (bytes[i]) out += String.fromCharCode(bytes[i]);
+    }
+    return out;
+  }
+
+  function readBiffString(bytes, offset, charCount, isUnicode) {
+    if (isUnicode) return readUtf16(bytes, offset, charCount * 2);
+    return readAnsi(bytes, offset, charCount);
+  }
+
+  function readCfbRegularStream(bytes, fat, startSector, size, sectorSize) {
+    const chunks = [];
+    let sector = startSector;
+    let guard = 0;
+    while (sector >= 0 && sector < fat.length && sector !== 0xfffffffe && guard < fat.length + 4) {
+      const offset = (sector + 1) * sectorSize;
+      chunks.push(bytes.slice(offset, offset + sectorSize));
+      sector = fat[sector];
+      guard += 1;
+    }
+    const out = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
+    let offset = 0;
+    chunks.forEach(chunk => {
+      out.set(chunk, offset);
+      offset += chunk.length;
+    });
+    return out.slice(0, size);
+  }
+
+  function readCfb(bytes) {
+    if (bytes[0] !== 0xd0 || bytes[1] !== 0xcf || bytes[2] !== 0x11 || bytes[3] !== 0xe0) {
+      throw new Error('Файл не похож на бинарный XLS.');
+    }
+    const view = dataView(bytes);
+    const sectorSize = 1 << view.getUint16(30, true);
+    const miniSectorSize = 1 << view.getUint16(32, true);
+    const firstDirSector = view.getInt32(48, true);
+    const miniCutoff = view.getUint32(56, true) || 4096;
+    const firstMiniFatSector = view.getInt32(60, true);
+    const miniFatSectorCount = view.getUint32(64, true);
+    const difat = [];
+    for (let i = 0; i < 109; i += 1) {
+      const sector = view.getInt32(76 + i * 4, true);
+      if (sector >= 0) difat.push(sector);
+    }
+
+    const fat = [];
+    difat.forEach(sector => {
+      const offset = (sector + 1) * sectorSize;
+      for (let i = 0; i < sectorSize; i += 4) fat.push(view.getInt32(offset + i, true));
+    });
+
+    const dirBytes = readCfbRegularStream(bytes, fat, firstDirSector, Number.MAX_SAFE_INTEGER, sectorSize);
+    const entries = [];
+    for (let offset = 0; offset + 128 <= dirBytes.length; offset += 128) {
+      const entry = dirBytes.slice(offset, offset + 128);
+      const entryView = dataView(entry);
+      const nameByteLength = Math.max(0, entryView.getUint16(64, true) - 2);
+      const name = readUtf16(entry, 0, nameByteLength);
+      const type = entry[66];
+      const startSector = entryView.getInt32(116, true);
+      const size = entryView.getUint32(120, true);
+      if (name) entries.push({ name, type, startSector, size });
+    }
+
+    const root = entries.find(entry => entry.type === 5) || entries[0];
+    let miniFat = [];
+    if (firstMiniFatSector >= 0 && miniFatSectorCount > 0) {
+      const miniFatBytes = readCfbRegularStream(bytes, fat, firstMiniFatSector, miniFatSectorCount * sectorSize, sectorSize);
+      const miniFatView = dataView(miniFatBytes);
+      for (let i = 0; i + 4 <= miniFatBytes.length; i += 4) miniFat.push(miniFatView.getInt32(i, true));
+    }
+    const miniStream = root && root.startSector >= 0
+      ? readCfbRegularStream(bytes, fat, root.startSector, root.size, sectorSize)
+      : new Uint8Array();
+
+    function readStream(entry) {
+      if (!entry) return new Uint8Array();
+      if (entry.size < miniCutoff && miniFat.length && miniStream.length) {
+        const chunks = [];
+        let sector = entry.startSector;
+        let guard = 0;
+        while (sector >= 0 && sector < miniFat.length && sector !== 0xfffffffe && guard < miniFat.length + 4) {
+          const offset = sector * miniSectorSize;
+          chunks.push(miniStream.slice(offset, offset + miniSectorSize));
+          sector = miniFat[sector];
+          guard += 1;
+        }
+        const out = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
+        let offset = 0;
+        chunks.forEach(chunk => {
+          out.set(chunk, offset);
+          offset += chunk.length;
+        });
+        return out.slice(0, entry.size);
+      }
+      return readCfbRegularStream(bytes, fat, entry.startSector, entry.size, sectorSize);
+    }
+
+    return { entries, readStream };
+  }
+
+  function parseBiffUnicodeString(bytes, offset) {
+    const view = dataView(bytes);
+    const charCount = view.getUint16(offset, true);
+    const flags = bytes[offset + 2] || 0;
+    let pos = offset + 3;
+    let richRuns = 0;
+    let extSize = 0;
+    if (flags & 0x08) {
+      richRuns = view.getUint16(pos, true);
+      pos += 2;
+    }
+    if (flags & 0x04) {
+      extSize = view.getUint32(pos, true);
+      pos += 4;
+    }
+    const isUnicode = Boolean(flags & 0x01);
+    const byteLength = charCount * (isUnicode ? 2 : 1);
+    const value = readBiffString(bytes, pos, charCount, isUnicode);
+    pos += byteLength + richRuns * 4 + extSize;
+    return { value, next: pos };
+  }
+
+  function biffRecords(bytes) {
+    const records = [];
+    const view = dataView(bytes);
+    for (let offset = 0; offset + 4 <= bytes.length;) {
+      const id = view.getUint16(offset, true);
+      const length = view.getUint16(offset + 2, true);
+      const start = offset + 4;
+      const end = Math.min(bytes.length, start + length);
+      records.push({ id, start, end, data: bytes.slice(start, end), offset });
+      offset = end;
+    }
+    return records;
+  }
+
+  function parseBiffSst(records) {
+    const sstParts = [];
+    let active = false;
+    records.forEach(record => {
+      if (record.id === 0x00fc) {
+        active = true;
+        sstParts.push(record.data.slice(8));
+      } else if (active && record.id === 0x003c) {
+        sstParts.push(record.data);
+      } else if (active) {
+        active = false;
+      }
+    });
+    const total = sstParts.reduce((sum, part) => sum + part.length, 0);
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    sstParts.forEach(part => {
+      bytes.set(part, offset);
+      offset += part.length;
+    });
+    const strings = [];
+    for (let pos = 0; pos + 3 < bytes.length;) {
+      try {
+        const parsed = parseBiffUnicodeString(bytes, pos);
+        strings.push(parsed.value);
+        if (parsed.next <= pos) break;
+        pos = parsed.next;
+      } catch {
+        break;
+      }
+    }
+    return strings;
+  }
+
+  function decodeRk(value) {
+    const divideBy100 = Boolean(value & 0x01);
+    const isInteger = Boolean(value & 0x02);
+    let result;
+    if (isInteger) {
+      result = value >> 2;
+    } else {
+      const buffer = new ArrayBuffer(8);
+      const view = new DataView(buffer);
+      view.setUint32(0, 0, true);
+      view.setUint32(4, value & 0xfffffffc, true);
+      result = view.getFloat64(0, true);
+    }
+    return divideBy100 ? result / 100 : result;
+  }
+
+  function putCell(rows, rowIndex, colIndex, value) {
+    if (rowIndex == null || colIndex == null) return;
+    if (!rows[rowIndex]) rows[rowIndex] = [];
+    rows[rowIndex][colIndex] = value == null ? '' : String(value);
+  }
+
+  function parseBiffBoundSheets(records) {
+    return records
+      .filter(record => record.id === 0x0085)
+      .map((record, index) => {
+        const view = dataView(record.data);
+        const offset = view.getUint32(0, true);
+        const nameLength = record.data[6] || 0;
+        const flags = record.data[7] || 0;
+        const name = readBiffString(record.data, 8, nameLength, Boolean(flags & 0x01)) || 'Лист ' + (index + 1);
+        return { offset, name, hidden: record.data[4] !== 0 };
+      });
+  }
+
+  function parseBiffSheetRows(workbook, sheetOffset, sharedStrings) {
+    const rows = [];
+    const view = dataView(workbook);
+    for (let offset = sheetOffset; offset + 4 <= workbook.length;) {
+      const id = view.getUint16(offset, true);
+      const length = view.getUint16(offset + 2, true);
+      const start = offset + 4;
+      const end = Math.min(workbook.length, start + length);
+      const record = workbook.slice(start, end);
+      const recordView = dataView(record);
+      if (id === 0x000a) break;
+      if (id === 0x0203 && record.length >= 14) {
+        putCell(rows, recordView.getUint16(0, true), recordView.getUint16(2, true), recordView.getFloat64(6, true));
+      } else if (id === 0x00fd && record.length >= 10) {
+        putCell(rows, recordView.getUint16(0, true), recordView.getUint16(2, true), sharedStrings[recordView.getUint32(6, true)] || '');
+      } else if (id === 0x0204 && record.length >= 8) {
+        const row = recordView.getUint16(0, true);
+        const col = recordView.getUint16(2, true);
+        const charCount = recordView.getUint16(6, true);
+        const flags = record[8] || 0;
+        putCell(rows, row, col, readBiffString(record, 9, charCount, Boolean(flags & 0x01)));
+      } else if (id === 0x027e && record.length >= 10) {
+        putCell(rows, recordView.getUint16(0, true), recordView.getUint16(2, true), decodeRk(recordView.getInt32(6, true)));
+      } else if (id === 0x00bd && record.length >= 6) {
+        const row = recordView.getUint16(0, true);
+        const firstCol = recordView.getUint16(2, true);
+        for (let pos = 4, col = firstCol; pos + 6 <= record.length - 2; pos += 6, col += 1) {
+          putCell(rows, row, col, decodeRk(recordView.getInt32(pos + 2, true)));
+        }
+      } else if (id === 0x0006 && record.length >= 14) {
+        const result = recordView.getFloat64(6, true);
+        if (Number.isFinite(result)) putCell(rows, recordView.getUint16(0, true), recordView.getUint16(2, true), result);
+      } else if (id === 0x0205 && record.length >= 8) {
+        putCell(rows, recordView.getUint16(0, true), recordView.getUint16(2, true), record[7] ? '#ERROR' : String(Boolean(record[6])));
+      }
+      offset = end;
+    }
+    return trimRows(rows);
+  }
+
+  function parseXlsSheets(arrayBuffer) {
+    const bytes = new Uint8Array(arrayBuffer);
+    if (bytes[0] === 0x50 && bytes[1] === 0x4b) return parseXlsxSheets(arrayBuffer);
+    if (bytes[0] === 0xd0 && bytes[1] === 0xcf && bytes[2] === 0x11 && bytes[3] === 0xe0) {
+      const cfb = readCfb(bytes);
+      const workbookEntry = cfb.entries.find(entry => ['Workbook', 'Book'].includes(entry.name));
+      if (!workbookEntry) throw new Error('В XLS не найден поток Workbook.');
+      const workbook = cfb.readStream(workbookEntry);
+      const records = biffRecords(workbook);
+      const sharedStrings = parseBiffSst(records);
+      const bounds = parseBiffBoundSheets(records);
+      if (!bounds.length) throw new Error('В XLS не найдены листы.');
+      return bounds.map((sheet, index) => ({
+        name: sheet.name || 'Лист ' + (index + 1),
+        hidden: sheet.hidden,
+        rows: parseBiffSheetRows(workbook, sheet.offset, sharedStrings)
+      }));
+    }
+    const text = new TextDecoder('utf-8').decode(bytes);
+    const trimmed = text.trim().toLowerCase();
+    if (trimmed.startsWith('<html') || trimmed.includes('<table')) {
+      const sheets = parseHtmlTableSheets(text).filter(sheet => sheet.rows.length);
+      if (sheets.length) return sheets;
+    }
+    return parseExcelXmlSheets(text);
+  }
+
   function shouldImportAsLooseTable(sheet) {
     if (!sheet || sheet.hidden || isPayloadRows(sheet.rows)) return false;
     const name = sheet.name || '';
@@ -649,18 +1010,27 @@
     return !['Пользователи', 'Журнал таблиц', 'Журнал форм'].includes(name);
   }
 
+  function importedSheetId(index) {
+    return 'sheet-' + (index + 1);
+  }
+
   function applyVisibleTableEdits(data, sheets) {
     const tableMap = tableSheetNameMap(data.tables || []);
     sheets.forEach(sheet => {
-      const table = tableMap.get(sheet.name);
-      if (table && !sheet.hidden && !isPayloadRows(sheet.rows)) {
-        table.cells = trimRows(sheet.rows);
+      const match = tableMap.get(sheet.name);
+      if (match && !sheet.hidden && !isPayloadRows(sheet.rows)) {
+        const tabs = tableSheets(match.table);
+        const tab = tabs.find(item => item.id === match.tabId) || tabs[0];
+        tab.cells = trimRows(sheet.rows);
+        match.table.sheets = tabs;
+        match.table.activeSheetId = match.table.activeSheetId || tabs[0]?.id;
+        match.table.cells = (tabs.find(item => item.id === match.table.activeSheetId) || tabs[0])?.cells || [];
       }
     });
   }
 
   function parseSpreadsheetData(arrayBuffer, format) {
-    const sheets = format === 'xlsx' ? parseXlsxSheets(arrayBuffer) : parseOdsSheets(arrayBuffer);
+    const sheets = format === 'xlsx' ? parseXlsxSheets(arrayBuffer) : (format === 'xls' ? parseXlsSheets(arrayBuffer) : parseOdsSheets(arrayBuffer));
     const payloadSheet = sheets.find(sheet => sheet.name === SYSTEM_SHEET_NAME && isPayloadRows(sheet.rows)) ||
       sheets.find(sheet => isPayloadRows(sheet.rows));
 
@@ -671,16 +1041,29 @@
     }
 
     const data = emptyData();
-    data.tables = sheets.filter(shouldImportAsLooseTable).map((sheet, index) => ({
-      id: 'imported-table-' + Date.now() + '-' + index,
-      name: sheet.name || 'Импортированная таблица ' + (index + 1),
-      owner: 'Импорт',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      comment: '',
-      cells: trimRows(sheet.rows),
-      history: []
-    }));
+    const visibleSheets = sheets.filter(shouldImportAsLooseTable);
+    if (visibleSheets.length) {
+      const now = new Date().toISOString();
+      const tabs = visibleSheets.map((sheet, index) => ({
+        id: importedSheetId(index),
+        name: sheet.name || 'Лист ' + (index + 1),
+        cells: trimRows(sheet.rows)
+      }));
+      data.tables = [{
+        id: 'imported-table-' + Date.now(),
+        name: visibleSheets.length === 1
+          ? (visibleSheets[0].name || 'Импортированная таблица')
+          : 'Импортированная книга',
+        owner: 'Импорт',
+        createdAt: now,
+        updatedAt: now,
+        comment: '',
+        cells: tabs[0]?.cells || [['']],
+        sheets: tabs,
+        activeSheetId: tabs[0]?.id || 'sheet-1',
+        history: []
+      }];
+    }
     return data;
   }
 
