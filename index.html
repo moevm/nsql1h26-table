@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Сервис таблиц и форм</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Экран входа / регистрации -->
+  <div id="screen-login" class="screen screen-login">
+    <div class="auth-card">
+      <div class="auth-header">
+        <div class="logo">Таблицы и формы</div>
+        <p class="auth-subtitle">Сервис электронных таблиц и форм</p>
+      </div>
+      <div class="auth-tabs">
+        <button type="button" class="auth-tab active" data-tab="login">Вход</button>
+        <button type="button" class="auth-tab" data-tab="register">Регистрация</button>
+      </div>
+      <div id="auth-error" class="auth-error hidden"></div>
+      <form id="form-login" class="auth-form">
+        <label class="label">Логин</label>
+        <input type="text" id="input-login" name="login" placeholder="Введите логин" required autocomplete="username">
+        <label class="label">Пароль</label>
+        <input type="password" id="input-password" name="password" placeholder="Введите пароль" required autocomplete="current-password">
+        <button type="submit" class="btn btn-primary btn-block">Войти</button>
+      </form>
+      <form id="form-register" class="auth-form hidden">
+        <label class="label">Логин</label>
+        <input type="text" id="reg-login" name="login" placeholder="Придумайте логин" required autocomplete="username" minlength="2">
+        <label class="label">Пароль</label>
+        <input type="password" id="reg-password" name="password" placeholder="Придумайте пароль" required minlength="8">
+        <label class="label">Повторите пароль</label>
+        <input type="password" id="reg-password-confirm" name="password_confirm" placeholder="Повторите пароль" required>
+        <button type="submit" class="btn btn-primary btn-block">Зарегистрироваться</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Основное приложение (после входа) -->
+  <div id="app" class="app hidden">
+    <header class="header">
+      <div class="header-left">
+        <button type="button" class="sidebar-toggle" id="sidebar-toggle" aria-label="Меню">☰</button>
+        <h1 class="header-title" id="header-title">Таблицы</h1>
+      </div>
+      <div class="header-center">
+        <div id="header-search-wrap" class="header-search-wrap header-search-tables">
+          <input type="text" id="search-tables-global" class="input header-search-input" placeholder="Поиск по таблицам...">
+          <button type="button" class="btn btn-create btn-create-table" id="btn-create-table">+ Создать таблицу</button>
+        </div>
+        <div id="header-search-forms" class="header-search-wrap header-search-forms hidden">
+          <input type="text" id="search-forms-global" class="input header-search-input" placeholder="Поиск по формам...">
+          <button type="button" class="btn btn-create btn-create-form" id="btn-create-form">+ Создать форму</button>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button type="button" class="btn btn-ghost" id="btn-toggle-theme" title="Переключить тему">🌓</button>
+        <span id="save-status" class="save-status save-status-idle hidden" aria-live="polite"></span>
+        <span class="user-name" id="user-name"></span>
+        <button type="button" class="btn btn-ghost" id="btn-logout">Выход</button>
+      </div>
+    </header>
+
+    <aside class="sidebar" id="sidebar">
+      <nav class="nav">
+        <a href="/tables" class="nav-link nav-link-tables active" data-screen="tables">Таблицы</a>
+        <a href="/forms" class="nav-link nav-link-forms" data-screen="forms">Формы</a>
+        <a href="/import" class="nav-link" data-screen="import">Импорт данных</a>
+        <a href="/export" class="nav-link" data-screen="export">Экспорт данных</a>
+        <a href="/statistics" class="nav-link" data-screen="statistics">Статистика</a>
+        <a href="/table-actions" class="nav-link" data-screen="tables-log">Действия в таблицах</a>
+        <a href="/form-actions" class="nav-link" data-screen="forms-log">Действия в формах</a>
+        <a href="/users" class="nav-link" data-screen="users">Пользователи</a>
+        <a href="/about" class="nav-link" data-screen="about">О приложении</a>
+      </nav>
+    </aside>
+
+    <main class="main" id="main">
+      <!-- Таблицы: список -->
+      <section id="screen-tables" class="screen-content">
+        <div class="list-filters">
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-table-filters">Фильтры</button>
+          <div class="list-filters-panel hidden" id="panel-table-filters">
+            <div class="multi-filter-grid">
+              <div class="multi-filter-row">
+                <label class="label">Название (содержит)</label>
+                <input type="text" id="filter-tables-name" class="input input-filter" placeholder="например бюджет">
+              </div>
+              <div class="multi-filter-row">
+                <label class="label">Создатель (содержит)</label>
+                <input type="text" id="filter-tables-owner" class="input input-filter" placeholder="например Иванов">
+              </div>
+              <div class="multi-filter-row">
+                <label class="label">Комментарий (содержит)</label>
+                <input type="text" id="filter-tables-comment" class="input input-filter" placeholder="например согласование">
+              </div>
+              <div class="multi-filter-row">
+                <label class="label">Создано (от/до)</label>
+                <div class="date-range-inputs">
+                  <input type="datetime-local" id="filter-tables-created-from" class="input input-filter">
+                  <input type="datetime-local" id="filter-tables-created-to" class="input input-filter">
+                </div>
+              </div>
+              <div class="multi-filter-row">
+                <label class="label">Изменено (от/до)</label>
+                <div class="date-range-inputs">
+                  <input type="datetime-local" id="filter-tables-updated-from" class="input input-filter">
+                  <input type="datetime-local" id="filter-tables-updated-to" class="input input-filter">
+                </div>
+              </div>
+              <div class="multi-filter-row">
+                <label class="label">Просмотрено (от/до)</label>
+                <div class="date-range-inputs">
+                  <input type="datetime-local" id="filter-tables-viewed-from" class="input input-filter">
+                  <input type="datetime-local" id="filter-tables-viewed-to" class="input input-filter">
+                </div>
+              </div>
+              <div class="multi-filter-actions">
+                <button type="button" class="btn btn-ghost btn-sm" id="btn-table-filters-reset">Сбросить</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="table-tables-list">
+            <thead>
+              <tr>
+                <th>Название</th>
+                <th>Дата создания</th>
+                <th>Дата изменения</th>
+                <th>Просмотр</th>
+                <th>Создатель</th>
+                <th>Комментарий</th>
+                <th>Действия</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-tables"></tbody>
+          </table>
+        </div>
+        <div class="list-footer">
+          <span id="tables-count" class="list-count"></span>
+          <div id="tables-pagination" class="pagination"></div>
+        </div>
+      </section>
+
+      <!-- Формы: список -->
+      <section id="screen-forms" class="screen-content hidden">
+        <div class="list-filters">
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-form-filters">Фильтры</button>
+          <div class="list-filters-panel hidden" id="panel-form-filters">
+            <div class="multi-filter-grid">
+              <div class="multi-filter-row">
+                <label class="label">Название (содержит)</label>
+                <input type="text" id="filter-forms-name" class="input input-filter" placeholder="например анкета">
+              </div>
+              <div class="multi-filter-row">
+                <label class="label">Создатель (содержит)</label>
+                <input type="text" id="filter-forms-owner" class="input input-filter" placeholder="например Петрова">
+              </div>
+              <div class="multi-filter-row">
+                <label class="label">Комментарий (содержит)</label>
+                <input type="text" id="filter-forms-comment" class="input input-filter" placeholder="например лимит">
+              </div>
+              <div class="multi-filter-row">
+                <label class="label">Создано (от/до)</label>
+                <div class="date-range-inputs">
+                  <input type="datetime-local" id="filter-forms-created-from" class="input input-filter">
+                  <input type="datetime-local" id="filter-forms-created-to" class="input input-filter">
+                </div>
+              </div>
+              <div class="multi-filter-row">
+                <label class="label">Изменено (от/до)</label>
+                <div class="date-range-inputs">
+                  <input type="datetime-local" id="filter-forms-updated-from" class="input input-filter">
+                  <input type="datetime-local" id="filter-forms-updated-to" class="input input-filter">
+                </div>
+              </div>
+              <div class="multi-filter-row">
+                <label class="label">Просмотрено (от/до)</label>
+                <div class="date-range-inputs">
+                  <input type="datetime-local" id="filter-forms-viewed-from" class="input input-filter">
+                  <input type="datetime-local" id="filter-forms-viewed-to" class="input input-filter">
+                </div>
+              </div>
+              <div class="multi-filter-actions">
+                <button type="button" class="btn btn-ghost btn-sm" id="btn-form-filters-reset">Сбросить</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="table-forms-list">
+            <thead>
+              <tr>
+                <th>Название</th>
+                <th>Дата создания</th>
+                <th>Дата изменения</th>
+                <th>Просмотр</th>
+                <th>Создатель</th>
+                <th>Комментарий</th>
+                <th>Действия</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-forms"></tbody>
+          </table>
+        </div>
+        <div class="list-footer">
+          <span id="forms-count" class="list-count"></span>
+          <div id="forms-pagination" class="pagination"></div>
+        </div>
+      </section>
+
+      <!-- Журнал действий по таблицам -->
+      <section id="screen-tables-log" class="screen-content hidden">
+        <h2 class="page-heading">Действия в таблицах</h2>
+        <div class="log-list-toolbar">
+          <input type="text" id="search-tables-log" class="input log-search-input" placeholder="Поиск...">
+          <div class="list-filters">
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-tables-log-filters">Фильтры</button>
+            <div class="list-filters-panel hidden" id="panel-tables-log-filters">
+              <div class="multi-filter-grid">
+                <div class="multi-filter-row">
+                  <label class="label">Таблица (содержит)</label>
+                  <input type="text" id="filter-tables-log-tableName" class="input input-filter" placeholder="например Продажи">
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Вкладка (содержит)</label>
+                  <input type="text" id="filter-tables-log-sheetName" class="input input-filter" placeholder="например Лист 1">
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Действие (содержит)</label>
+                  <input type="text" id="filter-tables-log-action" class="input input-filter" placeholder="например Изменён">
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Пользователь (содержит)</label>
+                  <input type="text" id="filter-tables-log-user" class="input input-filter" placeholder="например Иванов">
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Создатель таблицы (содержит)</label>
+                  <input type="text" id="filter-tables-log-owner" class="input input-filter" placeholder="например Петрова">
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Ячейка (содержит)</label>
+                  <input type="text" id="filter-tables-log-cell" class="input input-filter" placeholder="например B2">
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Значение (содержит)</label>
+                  <input type="text" id="filter-tables-log-value" class="input input-filter" placeholder="например 45000">
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Таблица создана (от/до)</label>
+                  <div class="date-range-inputs">
+                    <input type="datetime-local" id="filter-tables-log-created-from" class="input input-filter">
+                    <input type="datetime-local" id="filter-tables-log-created-to" class="input input-filter">
+                  </div>
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Таблица изменена (от/до)</label>
+                  <div class="date-range-inputs">
+                    <input type="datetime-local" id="filter-tables-log-updated-from" class="input input-filter">
+                    <input type="datetime-local" id="filter-tables-log-updated-to" class="input input-filter">
+                  </div>
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Таблица просмотрена (от/до)</label>
+                  <div class="date-range-inputs">
+                    <input type="datetime-local" id="filter-tables-log-viewed-from" class="input input-filter">
+                    <input type="datetime-local" id="filter-tables-log-viewed-to" class="input input-filter">
+                  </div>
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Дата (от/до)</label>
+                  <div class="date-range-inputs">
+                    <input type="datetime-local" id="filter-tables-log-date-from" class="input input-filter">
+                    <input type="datetime-local" id="filter-tables-log-date-to" class="input input-filter">
+                  </div>
+                </div>
+                <div class="multi-filter-actions">
+                  <button type="button" class="btn btn-ghost btn-sm" id="btn-tables-log-filters-reset">Сбросить</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="table-tables-log">
+            <thead>
+              <tr>
+                <th>Таблица</th>
+                <th>Вкладка</th>
+                <th>Действие</th>
+                <th>Пользователь</th>
+                <th>Создатель таблицы</th>
+                <th>Ячейка</th>
+                <th>Значение</th>
+                <th>Таблица создана</th>
+                <th>Таблица изменена</th>
+                <th>Таблица просмотрена</th>
+                <th>Дата действия</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-tables-log"></tbody>
+          </table>
+        </div>
+        <div class="list-footer">
+          <span id="tables-log-count" class="list-count"></span>
+          <div id="tables-log-pagination" class="pagination"></div>
+        </div>
+      </section>
+
+      <!-- Просмотр действия в таблице -->
+      <section id="screen-table-log-view" class="screen-content hidden">
+        <div class="detail-toolbar">
+          <button type="button" class="btn btn-ghost" id="back-from-table-log">← Назад</button>
+          <h2 class="page-heading user-detail-heading" id="view-table-log-title">Действие в таблице</h2>
+          <span class="detail-meta" id="table-log-meta"></span>
+        </div>
+        <div class="form-card table-log-detail-card">
+          <div class="form-row">
+            <label class="label">Таблица</label>
+            <input type="text" id="view-table-log-table" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Вкладка</label>
+            <input type="text" id="view-table-log-sheet" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Действие</label>
+            <input type="text" id="view-table-log-action" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Пользователь</label>
+            <input type="text" id="view-table-log-user" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Создатель таблицы</label>
+            <input type="text" id="view-table-log-owner" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Ячейка</label>
+            <input type="text" id="view-table-log-cell" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Значение</label>
+            <textarea id="view-table-log-value" class="textarea" rows="3" readonly></textarea>
+          </div>
+          <div class="form-row">
+            <label class="label">Таблица создана</label>
+            <input type="text" id="view-table-log-created" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Таблица изменена</label>
+            <input type="text" id="view-table-log-updated" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Таблица просмотрена</label>
+            <input type="text" id="view-table-log-viewed" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Дата действия</label>
+            <input type="text" id="view-table-log-date" class="input" readonly>
+          </div>
+        </div>
+      </section>
+
+      <!-- Просмотр действия в форме -->
+      <section id="screen-form-log-view" class="screen-content hidden">
+        <div class="detail-toolbar">
+          <button type="button" class="btn btn-ghost" id="back-from-form-log">← Назад</button>
+          <h2 class="page-heading user-detail-heading" id="view-form-log-title">Действие в форме</h2>
+          <span class="detail-meta" id="form-log-meta"></span>
+        </div>
+        <div class="form-card table-log-detail-card">
+          <div class="form-row">
+            <label class="label">Форма</label>
+            <input type="text" id="view-form-log-form" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Действие</label>
+            <input type="text" id="view-form-log-action" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Пользователь</label>
+            <input type="text" id="view-form-log-user" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Создатель формы</label>
+            <input type="text" id="view-form-log-owner" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Статус формы</label>
+            <input type="text" id="view-form-log-status" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Кол-во полей</label>
+            <input type="text" id="view-form-log-fields" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Ответы / детали</label>
+            <textarea id="view-form-log-answers" class="textarea" rows="3" readonly></textarea>
+          </div>
+          <div class="form-row">
+            <label class="label">Форма создана</label>
+            <input type="text" id="view-form-log-created" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Форма изменена</label>
+            <input type="text" id="view-form-log-updated" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Дата действия</label>
+            <input type="text" id="view-form-log-date" class="input" readonly>
+          </div>
+        </div>
+      </section>
+
+      <!-- Журнал действий по формам -->
+      <section id="screen-forms-log" class="screen-content hidden">
+        <h2 class="page-heading">Действия в формах</h2>
+        <div class="log-list-toolbar">
+          <input type="text" id="search-forms-log" class="input log-search-input" placeholder="Поиск...">
+          <div class="list-filters">
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-forms-log-filters">Фильтры</button>
+            <div class="list-filters-panel hidden" id="panel-forms-log-filters">
+              <div class="multi-filter-grid">
+                <div class="multi-filter-row">
+                  <label class="label">Форма (содержит)</label>
+                  <input type="text" id="filter-forms-log-formName" class="input input-filter" placeholder="например Анкета">
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Действие (содержит)</label>
+                  <input type="text" id="filter-forms-log-action" class="input input-filter" placeholder="например Ответ создан">
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Пользователь (содержит)</label>
+                  <input type="text" id="filter-forms-log-user" class="input input-filter" placeholder="например Петрова">
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Создатель формы (содержит)</label>
+                  <input type="text" id="filter-forms-log-owner" class="input input-filter" placeholder="например Иванов">
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Ответы (содержит)</label>
+                  <input type="text" id="filter-forms-log-answers" class="input input-filter" placeholder="например согласовано">
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Статус формы</label>
+                  <select id="filter-forms-log-status" class="input input-filter">
+                    <option value="">Любой</option>
+                    <option value="draft">Черновик</option>
+                    <option value="published">Опубликована</option>
+                  </select>
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Кол-во полей (от/до)</label>
+                  <div class="date-range-inputs">
+                    <input type="number" id="filter-forms-log-fields-min" class="input input-filter" min="0" placeholder="от">
+                    <input type="number" id="filter-forms-log-fields-max" class="input input-filter" min="0" placeholder="до">
+                  </div>
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Форма создана (от/до)</label>
+                  <div class="date-range-inputs">
+                    <input type="datetime-local" id="filter-forms-log-created-from" class="input input-filter">
+                    <input type="datetime-local" id="filter-forms-log-created-to" class="input input-filter">
+                  </div>
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Форма изменена (от/до)</label>
+                  <div class="date-range-inputs">
+                    <input type="datetime-local" id="filter-forms-log-updated-from" class="input input-filter">
+                    <input type="datetime-local" id="filter-forms-log-updated-to" class="input input-filter">
+                  </div>
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Дата (от/до)</label>
+                  <div class="date-range-inputs">
+                    <input type="datetime-local" id="filter-forms-log-date-from" class="input input-filter">
+                    <input type="datetime-local" id="filter-forms-log-date-to" class="input input-filter">
+                  </div>
+                </div>
+                <div class="multi-filter-actions">
+                  <button type="button" class="btn btn-ghost btn-sm" id="btn-forms-log-filters-reset">Сбросить</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="table-forms-log">
+            <thead>
+              <tr>
+                <th>Форма</th>
+                <th>Действие</th>
+                <th>Пользователь</th>
+                <th>Владелец</th>
+                <th>Статус</th>
+                <th>Полей</th>
+                <th>Ответы / детали</th>
+                <th>Дата и время</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-forms-log"></tbody>
+          </table>
+        </div>
+        <div class="list-footer">
+          <span id="forms-log-count" class="list-count"></span>
+          <div id="forms-log-pagination" class="pagination"></div>
+        </div>
+      </section>
+
+      <!-- Пользователи -->
+      <section id="screen-users" class="screen-content hidden">
+        <h2 class="page-heading">Пользователи</h2>
+        <div class="log-list-toolbar">
+          <input type="text" id="search-users" class="input log-search-input" placeholder="Поиск по пользователям...">
+          <div class="list-filters">
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-users-filters">Фильтры</button>
+            <div class="list-filters-panel hidden" id="panel-users-filters">
+              <div class="multi-filter-grid">
+                <div class="multi-filter-row">
+                  <label class="label">Логин (содержит)</label>
+                  <input type="text" id="filter-users-login" class="input input-filter" placeholder="например admin">
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Роль (содержит)</label>
+                  <input type="text" id="filter-users-role" class="input input-filter" placeholder="например analyst">
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Создан (от/до)</label>
+                  <div class="date-range-inputs">
+                    <input type="datetime-local" id="filter-users-created-from" class="input input-filter">
+                    <input type="datetime-local" id="filter-users-created-to" class="input input-filter">
+                  </div>
+                </div>
+                <div class="multi-filter-row">
+                  <label class="label">Изменён (от/до)</label>
+                  <div class="date-range-inputs">
+                    <input type="datetime-local" id="filter-users-updated-from" class="input input-filter">
+                    <input type="datetime-local" id="filter-users-updated-to" class="input input-filter">
+                  </div>
+                </div>
+                <div class="multi-filter-actions">
+                  <button type="button" class="btn btn-ghost btn-sm" id="btn-users-filters-reset">Сбросить</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="table-users-list">
+            <thead>
+              <tr>
+                <th>Логин</th>
+                <th>Роль</th>
+                <th>Дата создания</th>
+                <th>Дата изменения</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-users"></tbody>
+          </table>
+        </div>
+        <div class="list-footer">
+          <span id="users-count" class="list-count"></span>
+          <div id="users-pagination" class="pagination"></div>
+        </div>
+      </section>
+
+      <!-- Просмотр/редактирование пользователя -->
+      <section id="screen-user-view" class="screen-content hidden">
+        <div class="detail-toolbar">
+          <button type="button" class="btn btn-ghost" id="back-from-user">← Назад</button>
+          <h2 class="page-heading user-detail-heading" id="view-user-title">Пользователь</h2>
+          <span class="detail-meta" id="user-meta"></span>
+        </div>
+        <div class="form-card user-detail-card">
+          <div class="form-row">
+            <label class="label">Логин</label>
+            <input type="text" id="view-user-login" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Роль</label>
+            <select id="view-user-role" class="input">
+              <option value="administrator">administrator</option>
+              <option value="analyst">analyst</option>
+              <option value="editor">editor</option>
+              <option value="user">user</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label class="label">Дата создания</label>
+            <input type="text" id="view-user-created" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Дата изменения</label>
+            <input type="text" id="view-user-updated" class="input" readonly>
+          </div>
+          <p id="user-edit-readonly" class="hint hidden">Редактировать пользователя может только администратор.</p>
+          <button type="button" class="btn btn-primary" id="save-user">Сохранить</button>
+          <div id="user-edit-result" class="result-message hidden"></div>
+        </div>
+      </section>
+
+      <!-- 5. Просмотр/редактирование таблицы (Excel-подобная сетка) -->
+      <section id="screen-table-view" class="screen-content hidden">
+        <div class="detail-toolbar sheet-toolbar">
+          <button type="button" class="btn btn-ghost" id="back-from-table">← Назад</button>
+          <input type="text" id="view-table-name" class="input input-inline" placeholder="Название таблицы">
+          <span class="detail-meta" id="table-meta"></span>
+          <div class="toolbar-right">
+            <button type="button" class="btn btn-ghost btn-sm" id="sheet-toggle-filters">Фильтры</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="sheet-show-history">История</button>
+            <button type="button" class="btn btn-primary" id="save-table">Сохранить</button>
+          </div>
+        </div>
+        <div id="table-sheet-tabs" class="sheet-tabs-bar"></div>
+        <div class="sheet-wrap" id="sheet-wrap">
+          <div id="view-table-cells" class="sheet-editable"></div>
+        </div>
+        <div class="detail-block">
+          <label class="label">Комментарий</label>
+          <textarea id="view-table-comment" class="textarea" rows="2"></textarea>
+        </div>
+        <div class="detail-block access-panel">
+          <div class="access-panel-header">
+            <label class="label">Доступ</label>
+            <span class="hint" id="table-access-owner"></span>
+          </div>
+          <div id="table-access-invited" class="access-list"></div>
+          <div id="table-access-controls" class="access-controls">
+            <input type="text" id="table-invite-login" class="input" placeholder="Логин пользователя">
+            <button type="button" class="btn btn-ghost btn-sm" id="table-invite-btn">Пригласить</button>
+          </div>
+          <p id="table-access-readonly" class="hint hidden">Управлять доступом может только создатель таблицы.</p>
+        </div>
+        <div id="table-history-panel" class="history-panel hidden">
+          <h4>История этой таблицы</h4>
+          <div id="table-history-list" class="history-list"></div>
+        </div>
+      </section>
+
+      <!-- 6. Просмотр/редактирование формы -->
+      <section id="screen-form-view" class="screen-content hidden">
+        <div class="detail-toolbar">
+          <button type="button" class="btn btn-ghost" id="back-from-form">← Назад</button>
+          <input type="text" id="view-form-name" class="input input-inline" placeholder="Название формы">
+          <span class="detail-meta" id="form-meta"></span>
+          <div class="form-view-tabs">
+            <button type="button" class="btn btn-ghost btn-sm form-tab active" data-form-tab="edit">Редактировать</button>
+            <button type="button" class="btn btn-ghost btn-sm form-tab" data-form-tab="preview">Предпросмотр</button>
+            <button type="button" class="btn btn-ghost btn-sm form-tab" data-form-tab="responses">Ответы</button>
+          </div>
+          <button type="button" class="btn btn-primary" id="save-form">Сохранить</button>
+        </div>
+        <div id="form-edit-block" class="detail-block">
+          <div id="view-form-fields-edit" class="form-fields-editor"></div>
+          <button type="button" class="btn btn-ghost btn-sm" id="form-add-field-in-edit">+ Добавить поле</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="form-add-page-break-in-edit">+ Разрыв страницы</button>
+        </div>
+        <div id="form-preview-block" class="detail-block hidden">
+          <p class="form-description-preview" id="form-description-preview"></p>
+          <div id="view-form-fill" class="form-fill-preview"></div>
+          <div id="form-page-nav" class="form-page-nav hidden"></div>
+          <button type="button" class="btn btn-primary" id="form-submit-response">Отправить ответ</button>
+        </div>
+        <div id="form-responses-block" class="detail-block hidden">
+          <div class="table-wrap">
+            <table class="data-table" id="form-responses-table">
+              <thead id="form-responses-thead"></thead>
+              <tbody id="form-responses-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="detail-block">
+          <label class="label">Комментарий</label>
+          <textarea id="view-form-comment" class="textarea" rows="2"></textarea>
+        </div>
+        <div class="detail-block access-panel">
+          <div class="access-panel-header">
+            <label class="label">Доступ</label>
+            <span class="hint" id="form-access-owner"></span>
+          </div>
+          <div id="form-access-invited" class="access-list"></div>
+          <div id="form-access-controls" class="access-controls">
+            <input type="text" id="form-invite-login" class="input" placeholder="Логин пользователя">
+            <button type="button" class="btn btn-ghost btn-sm" id="form-invite-btn">Пригласить</button>
+          </div>
+          <p id="form-access-readonly" class="hint hidden">Управлять доступом может только создатель формы.</p>
+        </div>
+      </section>
+
+      <!-- 7. Создание таблицы (бесконечная, как Excel) -->
+      <section id="screen-create-table" class="screen-content hidden">
+        <h2 class="page-heading">Создание таблицы</h2>
+        <p class="hint">Таблица создаётся пустой. Строки и столбцы можно добавлять при редактировании — как в Excel.</p>
+        <form id="form-create-table" class="form-card">
+          <div class="form-row">
+            <label class="label">Название</label>
+            <input type="text" id="new-table-name" class="input" required placeholder="Название таблицы">
+          </div>
+          <button type="submit" class="btn btn-primary">Создать таблицу</button>
+        </form>
+      </section>
+
+      <!-- 8. Создание / редактирование формы (конструктор полей) -->
+      <section id="screen-create-form" class="screen-content hidden">
+        <h2 class="page-heading">Конструктор формы</h2>
+        <div class="form-card">
+          <div class="form-row">
+            <label class="label">Название формы</label>
+            <input type="text" id="new-form-name" class="input" required placeholder="Название формы">
+          </div>
+          <div class="form-row">
+            <label class="label">Описание</label>
+            <input type="text" id="new-form-desc" class="input" placeholder="Краткое описание для респондентов">
+          </div>
+          <div class="form-fields-builder">
+            <label class="label">Поля формы</label>
+            <div id="form-fields-list"></div>
+            <button type="button" class="btn btn-ghost" id="add-form-field">+ Добавить поле</button>
+            <button type="button" class="btn btn-ghost" id="add-form-page-break">+ Разрыв страницы</button>
+          </div>
+          <button type="button" class="btn btn-primary" id="save-new-form">Создать форму</button>
+        </div>
+      </section>
+
+      <!-- 9. Импорт данных -->
+      <section id="screen-import" class="screen-content hidden">
+        <h2 class="page-heading">Импорт данных</h2>
+        <div class="form-card">
+          <div class="form-row">
+            <label class="label">Формат файла</label>
+            <select id="import-format" class="input">
+              <option value="json">JSON</option>
+              <option value="csv">CSV</option>
+              <option value="xml">XML</option>
+              <option value="xls">XLS</option>
+              <option value="xlsx">XLSX</option>
+              <option value="ods">ODS</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label class="label">Выберите файл</label>
+            <input type="file" id="import-file" class="input" accept=".json,.csv,.xml,.xls,.xlsx,.ods">
+          </div>
+          <p class="hint">Импорт заменит текущие данные выбранными из файла.</p>
+          <button type="button" class="btn btn-primary" id="btn-import">Импортировать</button>
+          <div id="import-result" class="result-message hidden"></div>
+        </div>
+      </section>
+
+      <!-- 10. Экспорт данных -->
+      <section id="screen-export" class="screen-content hidden">
+        <h2 class="page-heading">Экспорт данных</h2>
+        <p class="export-intro">Выберите таблицы и формы для выгрузки. Если ничего не отмечено — экспортируются все.</p>
+        <div class="export-layout">
+          <div class="export-card export-card-tables">
+            <div class="export-card-header">
+              <span class="export-card-icon">📊</span>
+              <h3 class="export-card-title">Таблицы</h3>
+            </div>
+            <div id="export-tables-list" class="export-checkbox-list"></div>
+          </div>
+          <div class="export-card export-card-forms">
+            <div class="export-card-header">
+              <span class="export-card-icon">📋</span>
+              <h3 class="export-card-title">Формы</h3>
+            </div>
+            <div id="export-forms-list" class="export-checkbox-list"></div>
+          </div>
+        </div>
+        <div class="export-footer">
+          <div class="export-format-wrap">
+            <label class="label">Формат</label>
+            <select id="export-format" class="input export-format-select">
+              <option value="json">JSON</option>
+              <option value="csv">CSV</option>
+              <option value="xml">XML</option>
+              <option value="xlsx">XLSX</option>
+              <option value="ods">ODS</option>
+            </select>
+          </div>
+          <button type="button" class="btn btn-primary btn-export-download" id="btn-export">
+            <span class="btn-export-icon">↓</span> Скачать экспорт
+          </button>
+        </div>
+      </section>
+
+      <!-- 11. Статистика -->
+      <section id="screen-statistics" class="screen-content hidden">
+        <h2 class="page-heading">Статистика по формам и таблицам</h2>
+        <div class="form-card stats-filters">
+          <div class="form-row">
+            <label class="label">Источник данных</label>
+            <select id="stat-source" class="input">
+              <option value="metadata">Метаданные (таблицы и формы)</option>
+              <option value="table">Данные из таблицы</option>
+            </select>
+          </div>
+          <div id="stat-metadata-controls" class="stat-control-group">
+            <div class="form-row"><label class="label">Фильтр: тип</label><select id="stat-type" class="input"><option value="all">Все</option><option value="table">Таблицы</option><option value="form">Формы</option></select></div>
+            <div class="form-row">
+              <label class="label">Ось X (категории)</label>
+              <select id="stat-x" class="input">
+                <option value="owner">Владелец</option>
+                <option value="createdYear">Год создания</option>
+                <option value="updatedYear">Год изменения</option>
+                <option value="createdMonth">Месяц создания</option>
+                <option value="type">Тип</option>
+              </select>
+            </div>
+          </div>
+          <div id="stat-table-controls" class="stat-control-group hidden">
+            <div class="form-row"><label class="label">Таблица</label><select id="stat-table" class="input"></select></div>
+            <div class="form-row"><label class="label">Ось X</label><select id="stat-table-x" class="input"></select></div>
+            <div class="form-row"><label class="label">Ось Y (группировка)</label><select id="stat-table-y" class="input"></select></div>
+          </div>
+          <div class="stat-conditions">
+            <div class="stat-conditions-header">
+              <label class="label">Условия фильтра</label>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-add-stat-condition">+ Добавить условие</button>
+            </div>
+            <div id="stat-conditions-list"></div>
+          </div>
+          <button type="button" class="btn btn-primary" id="btn-build-stats"><span>📈</span>Построить диаграмму</button>
+          <button type="button" class="btn btn-ghost" id="btn-reset-stats-filters">Сбросить фильтр</button>
+        </div>
+        <div class="stats-kpis">
+          <div class="card"><div class="label">Совпало записей</div><div id="stat-kpi-total" class="kpi-value">0</div></div>
+          <div class="card"><div class="label">Таблиц</div><div id="stat-kpi-tables" class="kpi-value">0</div></div>
+          <div class="card"><div class="label">Форм</div><div id="stat-kpi-forms" class="kpi-value">0</div></div>
+        </div>
+        <div class="chart-container">
+          <canvas id="chart-canvas" width="700" height="380"></canvas>
+        </div>
+      </section>
+
+      <!-- 12. О приложении -->
+      <section id="screen-about" class="screen-content hidden">
+        <h2 class="page-heading">О приложении</h2>
+        <div class="about-layout">
+          <div class="about-panel">
+            <h3 class="about-title">Сервис таблиц и форм</h3>
+            <p class="about-text">
+              Веб-приложение для работы с электронными таблицами, формами, ответами,
+              журналами действий, импортом, экспортом и разграничением доступа.
+            </p>
+            <div class="about-version-row">
+              <span class="about-version-label">Версия</span>
+              <span id="about-version" class="about-version-value">загрузка...</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="/vendor/fflate.js"></script>
+  <script src="/spreadsheet.js"></script>
+  <script src="/data.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
