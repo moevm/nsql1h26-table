@@ -263,6 +263,70 @@ body {
 }
 .sheet-editable td input:focus { outline: none; background: var(--field-focus-bg); }
 
+.sheet-tabs-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0.75rem 0 0.5rem;
+  padding: 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.sheet-tabs-scroll {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.sheet-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 34px;
+  max-width: 220px;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sheet-tab.active {
+  border-color: var(--primary);
+  background: var(--field-focus-bg);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.sheet-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sheet-tab-order {
+  min-width: 18px;
+  padding: 0.05rem 0.3rem;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.sheet-tab-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .sheet-editable .sheet-corner {
   min-width: 52px;
   width: 52px;
