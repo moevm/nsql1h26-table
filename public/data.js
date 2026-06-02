@@ -109,6 +109,46 @@ function normalizeUserList(users) {
   return (users || []).map(user => String(user || '').trim()).filter(Boolean);
 }
 
+function cleanSheetId(value, fallback) {
+  return String(value || fallback || ('sheet-' + Date.now()))
+    .trim()
+    .replace(/[^a-zA-Z0-9_.:@-]/g, '_')
+    .slice(0, 96) || fallback;
+}
+
+function normalizeTableCells(cells) {
+  return (Array.isArray(cells) ? cells : []).map(row =>
+    (Array.isArray(row) ? row : []).map(cell => String(cell ?? ''))
+  );
+}
+
+function normalizeTableSheets(table) {
+  const usedIds = new Set();
+  const rawSheets = Array.isArray(table?.sheets) && table.sheets.length
+    ? table.sheets
+    : [{ id: table?.activeSheetId || 'sheet-1', name: 'Лист 1', cells: table?.cells || [] }];
+  const sheets = rawSheets.map((sheet, index) => {
+    const fallback = 'sheet-' + (index + 1);
+    let id = cleanSheetId(sheet?.id, fallback);
+    let counter = 2;
+    while (usedIds.has(id)) {
+      id = cleanSheetId(fallback + '-' + counter, fallback + '-' + counter);
+      counter += 1;
+    }
+    usedIds.add(id);
+    return {
+      id,
+      name: String(sheet?.name || ('Лист ' + (index + 1))).trim() || ('Лист ' + (index + 1)),
+      cells: normalizeTableCells(sheet?.cells || [])
+    };
+  });
+  const activeSheetId = sheets.some(sheet => sheet.id === table?.activeSheetId)
+    ? table.activeSheetId
+    : sheets[0].id;
+  const activeSheet = sheets.find(sheet => sheet.id === activeSheetId) || sheets[0];
+  return { sheets, activeSheetId, cells: normalizeTableCells(activeSheet?.cells || []) };
+}
+
 function inferOwnerLogin(resource) {
   const knownLogins = new Set(loadUsers().map(user => String(user.login || '').toLowerCase()));
   const explicit = String(resource?.ownerLogin || '').trim();
@@ -126,13 +166,17 @@ function normalizeAccess(resource) {
 }
 
 function normalizeTable(table) {
+  const sheetState = normalizeTableSheets(table);
   return {
     history: [],
     lastViewedAt: null,
     comment: '',
     cells: [],
+    sheets: [],
+    activeSheetId: '',
     ...table,
     ...normalizeAccess(table),
+    ...sheetState,
     history: table?.history || []
   };
 }
