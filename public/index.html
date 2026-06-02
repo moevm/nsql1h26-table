@@ -229,6 +229,10 @@
                   <input type="text" id="filter-tables-log-tableName" class="input input-filter" placeholder="например Продажи">
                 </div>
                 <div class="multi-filter-row">
+                  <label class="label">Вкладка (содержит)</label>
+                  <input type="text" id="filter-tables-log-sheetName" class="input input-filter" placeholder="например Лист 1">
+                </div>
+                <div class="multi-filter-row">
                   <label class="label">Действие (содержит)</label>
                   <input type="text" id="filter-tables-log-action" class="input input-filter" placeholder="например Изменён">
                 </div>
@@ -288,6 +292,7 @@
             <thead>
               <tr>
                 <th>Таблица</th>
+                <th>Вкладка</th>
                 <th>Действие</th>
                 <th>Пользователь</th>
                 <th>Создатель таблицы</th>
@@ -319,6 +324,10 @@
           <div class="form-row">
             <label class="label">Таблица</label>
             <input type="text" id="view-table-log-table" class="input" readonly>
+          </div>
+          <div class="form-row">
+            <label class="label">Вкладка</label>
+            <input type="text" id="view-table-log-sheet" class="input" readonly>
           </div>
           <div class="form-row">
             <label class="label">Действие</label>
@@ -609,6 +618,7 @@
             <button type="button" class="btn btn-primary" id="save-table">Сохранить</button>
           </div>
         </div>
+        <div id="table-sheet-tabs" class="sheet-tabs-bar"></div>
         <div class="sheet-wrap" id="sheet-wrap">
           <div id="view-table-cells" class="sheet-editable"></div>
         </div>
@@ -729,13 +739,14 @@
               <option value="json">JSON</option>
               <option value="csv">CSV</option>
               <option value="xml">XML</option>
+              <option value="xls">XLS</option>
               <option value="xlsx">XLSX</option>
               <option value="ods">ODS</option>
             </select>
           </div>
           <div class="form-row">
             <label class="label">Выберите файл</label>
-            <input type="file" id="import-file" class="input" accept=".json,.csv,.xml,.xlsx,.ods">
+            <input type="file" id="import-file" class="input" accept=".json,.csv,.xml,.xls,.xlsx,.ods">
           </div>
           <p class="hint">Импорт заменит текущие данные выбранными из файла.</p>
           <button type="button" class="btn btn-primary" id="btn-import">Импортировать</button>
