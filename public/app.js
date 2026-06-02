@@ -40,6 +40,7 @@
 
   let currentScreen = 'tables';
   let currentTableId = null;
+  let currentSheetId = null;
   let currentFormId = null;
   let formPreviewPage = 0;
   let lastSearchScreen = 'tables';
@@ -667,6 +668,7 @@
   function getTablesLogMultiFilters() {
     return {
       tableName: ($('#filter-tables-log-tableName')?.value || '').trim(),
+      sheetName: ($('#filter-tables-log-sheetName')?.value || '').trim(),
       action: ($('#filter-tables-log-action')?.value || '').trim(),
       user: ($('#filter-tables-log-user')?.value || '').trim(),
       owner: ($('#filter-tables-log-owner')?.value || '').trim(),
@@ -747,6 +749,7 @@
       return {
         q: rawFilterValue('#search-tables-log'),
         tableName: rawFilterValue('#filter-tables-log-tableName'),
+        sheetName: rawFilterValue('#filter-tables-log-sheetName'),
         action: rawFilterValue('#filter-tables-log-action'),
         user: rawFilterValue('#filter-tables-log-user'),
         owner: rawFilterValue('#filter-tables-log-owner'),
@@ -1220,6 +1223,77 @@
     return grid;
   }
 
+  function cleanSheetId(value, fallback) {
+    return String(value || fallback || ('sheet-' + Date.now()))
+      .trim()
+      .replace(/[^a-zA-Z0-9_.:@-]/g, '_')
+      .slice(0, 96) || fallback;
+  }
+
+  function normalizeCells(cells) {
+    return (Array.isArray(cells) ? cells : []).map(row =>
+      (Array.isArray(row) ? row : []).map(cell => String(cell ?? ''))
+    );
+  }
+
+  function ensureTableSheets(table) {
+    if (!table) return [];
+    const rawSheets = Array.isArray(table.sheets) && table.sheets.length
+      ? table.sheets
+      : [{ id: table.activeSheetId || 'sheet-1', name: 'Лист 1', cells: table.cells || [] }];
+    const usedIds = new Set();
+    table.sheets = rawSheets.map((sheet, index) => {
+      const fallback = 'sheet-' + (index + 1);
+      let id = cleanSheetId(sheet?.id, fallback);
+      let counter = 2;
+      while (usedIds.has(id)) {
+        id = cleanSheetId(fallback + '-' + counter, fallback + '-' + counter);
+        counter += 1;
+      }
+      usedIds.add(id);
+      return {
+        id,
+        name: String(sheet?.name || ('Лист ' + (index + 1))).trim() || ('Лист ' + (index + 1)),
+        cells: normalizeCells(sheet?.cells || [])
+      };
+    });
+    if (!table.sheets.length) table.sheets = [{ id: 'sheet-1', name: 'Лист 1', cells: normalizeCells(table.cells || []) }];
+    if (!table.sheets.some(sheet => sheet.id === table.activeSheetId)) table.activeSheetId = table.sheets[0].id;
+    const active = table.sheets.find(sheet => sheet.id === table.activeSheetId) || table.sheets[0];
+    table.cells = normalizeCells(active?.cells || []);
+    return table.sheets;
+  }
+
+  function activeTableSheet(table) {
+    const sheets = ensureTableSheets(table);
+    return sheets.find(sheet => sheet.id === (currentSheetId || table.activeSheetId)) || sheets[0];
+  }
+
+  function makeUniqueSheetName(table, baseName) {
+    const used = new Set(ensureTableSheets(table).map(sheet => sheet.name.toLowerCase()));
+    let candidate = String(baseName || 'Лист').trim() || 'Лист';
+    let counter = 2;
+    while (used.has(candidate.toLowerCase())) {
+      candidate = String(baseName || 'Лист').trim() + ' ' + counter;
+      counter += 1;
+    }
+    return candidate;
+  }
+
+  function syncActiveSheetToCells(table) {
+    const active = activeTableSheet(table);
+    table.activeSheetId = active?.id || table.activeSheetId;
+    table.cells = normalizeCells(active?.cells || []);
+  }
+
+  function tableSheetLogFields(table) {
+    const sheet = activeTableSheet(table);
+    return {
+      sheetId: sheet?.id || '',
+      sheetName: sheet?.name || ''
+    };
+  }
+
   function buildSheetFromCells(cells) {
     const grid = ensureCellsGrid(cells);
     let html = '<table class="sheet-grid"><tbody>';
@@ -1451,6 +1525,117 @@
     document.addEventListener('keydown', closeOnEscape);
   }
 
+  function saveTableSheetChange(tables, table, action, extra = {}) {
+    syncActiveSheetToCells(table);
+    table.updatedAt = new Date().toISOString();
+    saveTables(tables);
+    addTableHistory(table.id, {
+      action,
+      user: currentUserLogin() || 'Пользователь',
+      ...tableSheetLogFields(table),
+      ...extra
+    });
+  }
+
+  function renderTableSheetTabs(table) {
+    const wrap = $('#table-sheet-tabs');
+    if (!wrap || !table) return;
+    const sheets = ensureTableSheets(table);
+    wrap.innerHTML = '<div class="sheet-tabs-scroll">' + sheets.map((sheet, index) =>
+      '<button type="button" class="sheet-tab' + (sheet.id === currentSheetId ? ' active' : '') + '" data-sheet-id="' + escapeHtml(sheet.id) + '" title="Открыть вкладку">' +
+        '<span class="sheet-tab-name">' + escapeHtml(sheet.name) + '</span>' +
+        '<span class="sheet-tab-order">' + (index + 1) + '</span>' +
+      '</button>'
+    ).join('') + '</div>' +
+      '<div class="sheet-tab-actions">' +
+        '<button type="button" class="btn btn-ghost btn-sm" id="sheet-add-tab" title="Создать вкладку">+</button>' +
+        '<button type="button" class="btn btn-ghost btn-sm" id="sheet-rename-tab" title="Переименовать вкладку">Переименовать</button>' +
+        '<button type="button" class="btn btn-ghost btn-sm" id="sheet-move-left" title="Переместить вкладку влево">←</button>' +
+        '<button type="button" class="btn btn-ghost btn-sm" id="sheet-move-right" title="Переместить вкладку вправо">→</button>' +
+        '<button type="button" class="btn btn-ghost btn-sm" id="sheet-delete-tab" title="Удалить вкладку">Удалить</button>' +
+      '</div>';
+
+    wrap.querySelectorAll('.sheet-tab').forEach(btn => {
+      btn.addEventListener('click', function () {
+        const tables = loadTables();
+        const tb = tables.find(x => x.id === currentTableId);
+        if (!tb || !hasResourceAccess(tb)) return;
+        ensureTableSheets(tb);
+        tb.activeSheetId = this.dataset.sheetId;
+        currentSheetId = tb.activeSheetId;
+        syncActiveSheetToCells(tb);
+        saveTables(tables);
+        closeActiveSheetFilter();
+        sheetColumnFilters = {};
+        openTableView(currentTableId);
+      });
+    });
+
+    $('#sheet-add-tab')?.addEventListener('click', function () {
+      const tables = loadTables();
+      const tb = tables.find(x => x.id === currentTableId);
+      if (!tb || !hasResourceAccess(tb)) return;
+      const rawName = prompt('Название новой вкладки', 'Лист ' + (ensureTableSheets(tb).length + 1));
+      if (rawName === null) return;
+      const name = makeUniqueSheetName(tb, rawName || 'Лист');
+      const id = cleanSheetId('sheet-' + Date.now(), 'sheet-' + Date.now());
+      tb.sheets.push({ id, name, cells: [['']] });
+      tb.activeSheetId = id;
+      currentSheetId = id;
+      saveTableSheetChange(tables, tb, 'Вкладка создана', { sheetId: id, sheetName: name });
+      openTableView(currentTableId);
+    });
+
+    $('#sheet-rename-tab')?.addEventListener('click', function () {
+      const tables = loadTables();
+      const tb = tables.find(x => x.id === currentTableId);
+      if (!tb || !hasResourceAccess(tb)) return;
+      const sheet = activeTableSheet(tb);
+      const nextName = (prompt('Новое название вкладки', sheet?.name || '') || '').trim();
+      if (!sheet || !nextName || nextName === sheet.name) return;
+      const oldName = sheet.name;
+      sheet.name = nextName;
+      saveTableSheetChange(tables, tb, 'Вкладка переименована', { sheetId: sheet.id, sheetName: sheet.name, details: oldName + ' → ' + sheet.name });
+      openTableView(currentTableId);
+    });
+
+    function moveActiveSheet(direction) {
+      const tables = loadTables();
+      const tb = tables.find(x => x.id === currentTableId);
+      if (!tb || !hasResourceAccess(tb)) return;
+      const sheets = ensureTableSheets(tb);
+      const index = sheets.findIndex(sheet => sheet.id === currentSheetId);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= sheets.length) return;
+      const [sheet] = sheets.splice(index, 1);
+      sheets.splice(nextIndex, 0, sheet);
+      saveTableSheetChange(tables, tb, 'Порядок вкладок изменён', { sheetId: sheet.id, sheetName: sheet.name });
+      openTableView(currentTableId);
+    }
+
+    $('#sheet-move-left')?.addEventListener('click', () => moveActiveSheet(-1));
+    $('#sheet-move-right')?.addEventListener('click', () => moveActiveSheet(1));
+
+    $('#sheet-delete-tab')?.addEventListener('click', function () {
+      const tables = loadTables();
+      const tb = tables.find(x => x.id === currentTableId);
+      if (!tb || !hasResourceAccess(tb)) return;
+      const sheets = ensureTableSheets(tb);
+      if (sheets.length <= 1) {
+        alert('Нельзя удалить последнюю вкладку таблицы.');
+        return;
+      }
+      const index = sheets.findIndex(sheet => sheet.id === currentSheetId);
+      const sheet = sheets[index];
+      if (!sheet || !confirm('Удалить вкладку "' + sheet.name + '"?')) return;
+      sheets.splice(index, 1);
+      tb.activeSheetId = sheets[Math.max(0, index - 1)]?.id || sheets[0].id;
+      currentSheetId = tb.activeSheetId;
+      saveTableSheetChange(tables, tb, 'Вкладка удалена', { sheetId: sheet.id, sheetName: sheet.name });
+      openTableView(currentTableId);
+    });
+  }
+
   function openTableView(id) {
     currentTableId = id;
     closeActiveSheetFilter();
@@ -1464,14 +1649,18 @@
     }
     setTableLastViewed(id);
     const visibleTable = findAccessibleTable(id) || t;
+    ensureTableSheets(visibleTable);
+    currentSheetId = visibleTable.activeSheetId;
+    const activeSheet = activeTableSheet(visibleTable);
     showScreen('table-view');
     $('#view-table-name').value = visibleTable.name || '';
     $('#view-table-comment').value = visibleTable.comment || '';
     $('#table-meta').textContent = `Создано: ${visibleTable.createdAt}, Изменено: ${visibleTable.updatedAt}`;
     $('#table-history-panel').classList.add('hidden');
     renderTableAccessBlock(visibleTable);
+    renderTableSheetTabs(visibleTable);
     const cellsEl = $('#view-table-cells');
-    cellsEl.innerHTML = buildSheetFromCells(visibleTable.cells);
+    cellsEl.innerHTML = buildSheetFromCells(activeSheet?.cells || visibleTable.cells);
     cellsEl.classList.toggle('sheet-filters-off', !sheetFiltersVisible);
     $('#sheet-toggle-filters')?.classList.toggle('active', sheetFiltersVisible);
     applySheetFilterVisibility();
@@ -1481,14 +1670,20 @@
         const tables = loadTables();
         const tb = tables.find(x => x.id === currentTableId);
         if (!tb || !hasResourceAccess(tb)) return;
-        tb.cells = ensureCellsGrid(tb.cells);
-        if (!tb.cells[r]) tb.cells[r] = [];
-        while (tb.cells[r].length <= c) tb.cells[r].push('');
-        tb.cells[r][c] = this.value;
+        ensureTableSheets(tb);
+        tb.activeSheetId = currentSheetId || tb.activeSheetId;
+        const sheet = activeTableSheet(tb);
+        sheet.cells = ensureCellsGrid(sheet.cells);
+        if (!sheet.cells[r]) sheet.cells[r] = [];
+        while (sheet.cells[r].length <= c) sheet.cells[r].push('');
+        sheet.cells[r][c] = this.value;
+        syncActiveSheetToCells(tb);
         saveTables(tables);
         addTableHistory(currentTableId, {
           action: 'Ячейка изменена',
           user: currentUserLogin() || 'Пользователь',
+          sheetId: sheet.id,
+          sheetName: sheet.name,
           cell: colLetter(c) + (r + 1),
           value: this.value
         });
@@ -1503,7 +1698,10 @@
         const tables = loadTables();
         const tb = tables.find(x => x.id === currentTableId);
         if (!tb || !hasResourceAccess(tb)) return;
-        const grid = ensureCellsGrid(tb.cells);
+        ensureTableSheets(tb);
+        tb.activeSheetId = currentSheetId || tb.activeSheetId;
+        const sheet = activeTableSheet(tb);
+        const grid = ensureCellsGrid(sheet?.cells || tb.cells);
         const values = [];
         for (let r = 0; r < grid.length; r++)
           if (grid[r][col] !== undefined && grid[r][col] !== '') values.push(String(grid[r][col]).trim());
@@ -1516,7 +1714,10 @@
   function applySheetFilterVisibility() {
     const t = loadTables().find(x => x.id === currentTableId);
     if (!t || !hasResourceAccess(t)) return;
-    const grid = ensureCellsGrid(t.cells);
+    ensureTableSheets(t);
+    t.activeSheetId = currentSheetId || t.activeSheetId;
+    const sheet = activeTableSheet(t);
+    const grid = ensureCellsGrid(sheet?.cells || t.cells);
     const rows = $('#view-table-cells')?.querySelectorAll('tbody tr');
     if (!rows) return;
     rows.forEach((tr, i) => {
@@ -1547,14 +1748,20 @@
         const tables = loadTables();
         const tb = tables.find(x => x.id === currentTableId);
         if (!tb || !hasResourceAccess(tb)) return;
-        tb.cells = ensureCellsGrid(tb.cells);
-        if (!tb.cells[r]) tb.cells[r] = [];
-        while (tb.cells[r].length <= c) tb.cells[r].push('');
-        tb.cells[r][c] = this.value;
+        ensureTableSheets(tb);
+        tb.activeSheetId = currentSheetId || tb.activeSheetId;
+        const sheet = activeTableSheet(tb);
+        sheet.cells = ensureCellsGrid(sheet.cells);
+        if (!sheet.cells[r]) sheet.cells[r] = [];
+        while (sheet.cells[r].length <= c) sheet.cells[r].push('');
+        sheet.cells[r][c] = this.value;
+        syncActiveSheetToCells(tb);
         saveTables(tables);
         addTableHistory(currentTableId, {
           action: 'Ячейка изменена',
           user: currentUserLogin() || 'Пользователь',
+          sheetId: sheet.id,
+          sheetName: sheet.name,
           cell: colLetter(c) + (r + 1),
           value: this.value
         });
@@ -1617,18 +1824,22 @@
     tb.comment = $('#view-table-comment').value.trim() || '';
     const cellsEl = $('#view-table-cells');
     const inputs = cellsEl.querySelectorAll('.sheet-cell input');
-    tb.cells = ensureCellsGrid(tb.cells);
+    ensureTableSheets(tb);
+    tb.activeSheetId = currentSheetId || tb.activeSheetId;
+    const sheet = activeTableSheet(tb);
+    sheet.cells = ensureCellsGrid(sheet.cells);
     inputs.forEach(inp => {
       const r = parseInt(inp.dataset.r, 10), c = parseInt(inp.dataset.c, 10);
-      if (!tb.cells[r]) tb.cells[r] = [];
-      while (tb.cells[r].length <= c) tb.cells[r].push('');
-      tb.cells[r][c] = inp.value;
+      if (!sheet.cells[r]) sheet.cells[r] = [];
+      while (sheet.cells[r].length <= c) sheet.cells[r].push('');
+      sheet.cells[r][c] = inp.value;
     });
+    syncActiveSheetToCells(tb);
     const now = new Date();
     tb.updatedAt = now.toISOString();
     const user = localStorage.getItem(STORAGE_KEYS.user) || 'Пользователь';
     saveTables(tables);
-    addTableHistory(currentTableId, { action: 'Изменён', user });
+    addTableHistory(currentTableId, { action: 'Изменён', user, ...tableSheetLogFields(tb) });
     const saved = loadTables().find(t => t.id === currentTableId) || tb;
     $('#table-meta').textContent = 'Создано: ' + new Date(saved.createdAt).toLocaleString('ru') + ', Изменено: ' + new Date(saved.updatedAt).toLocaleString('ru');
   });
@@ -1940,7 +2151,20 @@
     const date = now.toISOString();
     const user = currentUserLogin() || 'Пользователь';
     const tables = loadTables();
-    tables.push({ id, name, owner: user, ownerLogin: user, invitedUsers: [], createdAt: date, updatedAt: date, comment: '', cells: [['']], history: [] });
+    tables.push({
+      id,
+      name,
+      owner: user,
+      ownerLogin: user,
+      invitedUsers: [],
+      createdAt: date,
+      updatedAt: date,
+      comment: '',
+      cells: [['']],
+      sheets: [{ id: 'sheet-1', name: 'Лист 1', cells: [['']] }],
+      activeSheetId: 'sheet-1',
+      history: []
+    });
     saveTables(tables);
     addTableHistory(id, { action: 'Создано', user });
     this.reset();
@@ -2017,7 +2241,7 @@
   // ---------- Импорт ----------
   function detectDataFileFormat(fileName) {
     const ext = String(fileName || '').split('.').pop().toLowerCase();
-    return ['json', 'csv', 'xml', 'xlsx', 'ods'].includes(ext) ? ext : '';
+    return ['json', 'csv', 'xml', 'xls', 'xlsx', 'ods'].includes(ext) ? ext : '';
   }
 
   $('#btn-import')?.addEventListener('click', function () {
@@ -2054,7 +2278,7 @@
           data = parseCsvToData(source);
         } else if (format === 'xml') {
           data = parseXmlToData(source);
-        } else if (format === 'xlsx' || format === 'ods') {
+        } else if (format === 'xls' || format === 'xlsx' || format === 'ods') {
           data = window.AppSpreadsheet.parseSpreadsheetData(source, format);
         } else {
           throw new Error('Неподдерживаемый формат файла.');
@@ -2080,7 +2304,7 @@
         resultEl.classList.remove('hidden');
       }
     };
-    if (format === 'xlsx' || format === 'ods') {
+    if (format === 'xls' || format === 'xlsx' || format === 'ods') {
       reader.readAsArrayBuffer(file);
     } else {
       reader.readAsText(file, 'UTF-8');
@@ -2099,7 +2323,18 @@
         if (Array.isArray(data[collection])) data[collection].push(JSON.parse(decodeURIComponent(payload)));
       } else if (line.startsWith('TABLE,')) {
         const [, id, name, owner, createdAt, updatedAt] = line.split(',');
-        data.tables.push({ id, name, owner, createdAt, updatedAt, comment: '', cells: [], status: 'draft' });
+        data.tables.push({
+          id,
+          name,
+          owner,
+          createdAt,
+          updatedAt,
+          comment: '',
+          cells: [],
+          sheets: [{ id: 'sheet-1', name: 'Лист 1', cells: [] }],
+          activeSheetId: 'sheet-1',
+          status: 'draft'
+        });
       } else if (line.startsWith('FORM,')) {
         const [, id, name, owner, createdAt, updatedAt] = line.split(',');
         data.forms.push({ id, name, owner, createdAt, updatedAt, comment: '', fields: [], description: '', status: 'draft' });
@@ -2126,6 +2361,8 @@
         updatedAt: el.querySelector('updatedAt')?.textContent || '',
         comment: '',
         cells: [],
+        sheets: [{ id: 'sheet-1', name: 'Лист 1', cells: [] }],
+        activeSheetId: 'sheet-1',
         status: 'draft'
       });
     });
@@ -2219,6 +2456,7 @@
       id: l.id || '',
       tableId: l.tableId || '',
       tableName: l.tableName || '',
+      sheetName: l.sheetName || '',
       owner: l.owner || '',
       createdAt: l.createdAt || '',
       updatedAt: l.updatedAt || '',
@@ -2238,6 +2476,7 @@
       rows = rows.filter(r => {
         return [
           r.tableName,
+          r.sheetName,
           r.action,
           r.user,
           r.owner,
@@ -2254,6 +2493,7 @@
 
     rows = rows.filter(r => {
       if (filters.tableName && !normalizeText(r.tableName).includes(normalizeText(filters.tableName))) return false;
+      if (filters.sheetName && !normalizeText(r.sheetName).includes(normalizeText(filters.sheetName))) return false;
       if (filters.action && !normalizeText(r.action).includes(normalizeText(filters.action))) return false;
       if (filters.user && !normalizeText(r.user).includes(normalizeText(filters.user))) return false;
       if (filters.owner && !normalizeText(r.owner).includes(normalizeText(filters.owner))) return false;
@@ -2277,6 +2517,7 @@
     tbody.innerHTML = rows.length
       ? rows.map(r => '<tr class="table-log-row-clickable" data-log-id="' + escapeHtml(r.id || '') + '">' +
         '<td><a href="/table-actions/' + encodeURIComponent(r.id || '') + '" class="table-log-open-link" data-log-id="' + escapeHtml(r.id || '') + '">' + escapeHtml(r.tableName || '—') + '</a></td>' +
+        '<td>' + escapeHtml(r.sheetName || '—') + '</td>' +
         '<td>' + escapeHtml(r.action || '—') + '</td>' +
         '<td>' + escapeHtml(r.user || '—') + '</td>' +
         '<td>' + escapeHtml(r.owner || '—') + '</td>' +
@@ -2287,7 +2528,7 @@
         '<td>' + escapeHtml(formatDateTime(r.viewedAt)) + '</td>' +
         '<td>' + escapeHtml(formatDateTime(r.date)) + '</td>' +
       '</tr>').join('')
-      : '<tr><td colspan="10">Действий нет</td></tr>';
+      : '<tr><td colspan="11">Действий нет</td></tr>';
     renderPagination('tables-log', pageData.total || 0, pageData.page || 1, pageData.limit || LIST_PAGE_SIZE, renderTablesLog);
     tbody.querySelectorAll('.table-log-open-link').forEach(link => {
       link.addEventListener('click', function (e) {
@@ -2316,6 +2557,7 @@
     $('#view-table-log-title').textContent = log.action || 'Действие в таблице';
     $('#table-log-meta').textContent = 'Дата действия: ' + formatDateTime(log.date);
     $('#view-table-log-table').value = log.tableName || '—';
+    $('#view-table-log-sheet').value = log.sheetName || '—';
     $('#view-table-log-action').value = log.action || '—';
     $('#view-table-log-user').value = log.user || '—';
     $('#view-table-log-owner').value = log.owner || '—';
